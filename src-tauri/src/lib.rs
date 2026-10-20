@@ -418,6 +418,8 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 ai::ai_cancel,
                 commands::preferences_load,
                 commands::preferences_save,
+                commands::ai_key_configured,
+                commands::ai_key_save,
                 commands::groups_list,
                 commands::group_save,
                 commands::group_delete,

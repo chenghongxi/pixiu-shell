@@ -143,6 +143,15 @@ impl Sessions {
             .and_then(|entry| entry.platform_host)
             .context("AI 仅支持已连接的平台 SSH 会话")
     }
+
+    pub fn is_local_ssh(&self, id: Uuid) -> Result<bool> {
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow!("终端状态锁不可用"))?;
+        let entry = entries.get(&id).context("终端已关闭")?;
+        Ok(!entry.is_system_shell && matches!(entry.transport, Session::Local(_)))
+    }
     pub fn start_idle_monitor(self: &Arc<Self>) {
         let sessions = Arc::downgrade(self);
         std::thread::spawn(move || {

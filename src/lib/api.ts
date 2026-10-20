@@ -235,6 +235,8 @@ export interface Preferences {
   groupBy: "group" | "tag";
   mode: Mode;
   platformAddress: string;
+  aiBaseUrl: string;
+  aiModel: string;
 }
 export const defaultPreferences: Preferences = {
   shortcuts: {},
@@ -249,6 +251,8 @@ export const defaultPreferences: Preferences = {
   groupBy: "group",
   mode: "local",
   platformAddress: "",
+  aiBaseUrl: "",
+  aiModel: "",
 };
 export interface FileItem {
   name: string;

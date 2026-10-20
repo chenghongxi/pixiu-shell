@@ -24,6 +24,7 @@ import {
   Server,
   Settings2,
   Building2,
+  Sparkles,
   Trash2,
   Pencil,
 } from "lucide-react";
@@ -93,6 +94,8 @@ export function SettingsPage({
   const [draft, setDraft] = useState(preferences);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [aiKeyConfigured, setAiKeyConfigured] = useState(false);
   const [editor, setEditor] = useState<{ host?: LocalHost } | null>(null);
   const [groupEditor, setGroupEditor] = useState<{
     previous?: string;
@@ -113,6 +116,11 @@ export function SettingsPage({
     // oxlint-disable-next-line react/set-state-in-effect
     if (createRequest) setEditor({});
   }, [createRequest]);
+  useEffect(() => {
+    void command<boolean>("ai_key_configured")
+      .then(setAiKeyConfigured)
+      .catch((error) => setError(errorMessage(error)));
+  }, []);
   const scheme = terminalThemes[draft.terminalTheme] ?? terminalThemes.tshell;
   function update<K extends keyof Preferences>(key: K, value: Preferences[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -126,6 +134,45 @@ export function SettingsPage({
       if (conflict) throw new Error(conflict);
       await onSave({ ...draft, platformAddress: draft.platformAddress.trim() });
       toast.success("配置已保存，刷新和重启后仍然有效");
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function saveAi(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      if (!draft.aiBaseUrl.trim() || !draft.aiModel.trim())
+        throw new Error("请填写 OpenAI 兼容网关地址和模型名称");
+      if (!aiKeyConfigured && !apiKey.trim())
+        throw new Error("请填写 API Key；密钥只会保存到系统凭据库");
+      await onSave({
+        ...draft,
+        aiBaseUrl: draft.aiBaseUrl.trim().replace(/\/+$/, ""),
+        aiModel: draft.aiModel.trim(),
+      });
+      if (apiKey.trim()) {
+        await command("ai_key_save", { apiKey: apiKey.trim() });
+        setApiKey("");
+        setAiKeyConfigured(true);
+      }
+      toast.success("AI 配置已保存");
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function clearAiKey() {
+    setSaving(true);
+    setError("");
+    try {
+      await command("ai_key_save", { apiKey: "", clear: true });
+      setAiKeyConfigured(false);
+      toast.success("已清除本机 AI API Key");
     } catch (error) {
       setError(errorMessage(error));
     } finally {
@@ -195,6 +242,10 @@ export function SettingsPage({
             <Building2 />
             运维平台
           </TabsTrigger>
+          <TabsTrigger value="ai">
+            <Sparkles />
+            AI
+          </TabsTrigger>
           <TabsTrigger value="shortcuts">
             <Keyboard />
             快捷键
@@ -237,6 +288,69 @@ export function SettingsPage({
             onStatus={onLockStatus}
             onLock={onLock}
           />
+        </TabsContent>
+        <TabsContent value="ai">
+          <form onSubmit={saveAi} className="settings-form">
+            <div className="settings-section">
+              <h2>离线 SSH AI</h2>
+              <p>用于本地主机终端分析。终端上下文会先在本机脱敏；AI 只能分析、建议和填入命令，不能自动执行命令。</p>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="settings-ai-url">OpenAI 兼容网关地址</FieldLabel>
+                  <Input
+                    id="settings-ai-url"
+                    type="url"
+                    placeholder="https://api.openai.com/v1"
+                    value={draft.aiBaseUrl}
+                    onChange={(event) => update("aiBaseUrl", event.target.value)}
+                  />
+                  <FieldDescription>支持 Pixiu AI 网关或任何兼容 <code>/chat/completions</code> 的地址。</FieldDescription>
+                </Field>
+                <div className="settings-grid">
+                  <Field>
+                    <FieldLabel htmlFor="settings-ai-model">模型名称</FieldLabel>
+                    <Input
+                      id="settings-ai-model"
+                      placeholder="gpt-4.1-mini"
+                      value={draft.aiModel}
+                      onChange={(event) => update("aiModel", event.target.value)}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="settings-ai-key">API Key</FieldLabel>
+                    <Input
+                      id="settings-ai-key"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={aiKeyConfigured ? "已保存在系统凭据库；输入可覆盖" : "输入 API Key"}
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                    />
+                  </Field>
+                </div>
+              </FieldGroup>
+              <div className="platform-explanation">
+                <Sparkles />
+                <div>
+                  <h3>{aiKeyConfigured ? "API Key 已配置" : "尚未配置 API Key"}</h3>
+                  <p>密钥只保存在当前操作系统的凭据库中，不写入数据库、偏好文件或终端上下文。</p>
+                </div>
+              </div>
+            </div>
+            {error ? (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="settings-save">
+              {aiKeyConfigured ? (
+                <Button type="button" variant="ghost" disabled={saving} onClick={() => void clearAiKey()}>
+                  清除 API Key
+                </Button>
+              ) : <span />}
+              <Button disabled={saving}>保存 AI 配置</Button>
+            </div>
+          </form>
         </TabsContent>
         <TabsContent value="appearance">
           <form onSubmit={save} className="shortcut-settings-form">

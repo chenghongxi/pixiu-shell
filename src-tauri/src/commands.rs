@@ -23,9 +23,6 @@ pub(crate) async fn preferences_save(
     let mut client = state.platform.lock().await;
     let path = state.database.to_path_buf();
     let address = preferences.platform_address.to_string();
-    if preferences.mode == "local" {
-        state.ai.cancel_all();
-    }
     let changed = tokio::task::spawn_blocking(move || -> Result<bool> {
         let mut db = storage::open(&path)?;
         let changed = preferences::load(&db)?.platform_address != preferences.platform_address;
@@ -46,6 +43,28 @@ pub(crate) async fn preferences_save(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn ai_key_configured() -> CommandResult<bool> {
+    tokio::task::spawn_blocking(crate::credentials::ai_key_configured)
+        .await
+        .map_err(error)?
+        .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn ai_key_save(api_key: String, clear: Option<bool>) -> CommandResult<()> {
+    tokio::task::spawn_blocking(move || {
+        if clear == Some(true) {
+            crate::credentials::delete_ai_key()
+        } else {
+            crate::credentials::save_ai_key(&api_key)
+        }
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
 }
 #[tauri::command]
 pub(crate) async fn workspace_restore(state: State<'_, AppState>) -> CommandResult<Value> {

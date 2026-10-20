@@ -1231,7 +1231,7 @@ export default function App() {
                 >
                   <FolderOpen />
                 </Button>
-                {mode === "platform" && user ? (
+                {activeSession?.target.mode !== "shell" ? (
                   <Button
                     size="icon-sm"
                     variant="ghost"
@@ -2105,7 +2105,7 @@ export default function App() {
                     toast.error(errorMessage(error)),
                   )
                 }
-                hidden={!aiOpen || mode !== "platform" || !user}
+                hidden={!aiOpen}
               >
                 <Suspense
                   fallback={<div className="table-empty">正在加载主机 AI…</div>}
@@ -2116,14 +2116,14 @@ export default function App() {
                       aiOpen &&
                       mode === "platform" &&
                       !!user &&
-                      activeSession?.target.mode !== "platform" &&
+                      !activeSession &&
                       view === "workspace"
                     }
                     getTerminal={() => undefined}
                     onClose={() => setAiOpen(false)}
                   />
                   {sessions
-                    .filter((session) => session.target.mode === "platform")
+                    .filter((session) => session.target.mode !== "shell")
                     .map((session) => (
                       <AiAssistant
                         key={session.id}
@@ -2132,8 +2132,6 @@ export default function App() {
                         visible={
                           aiOpen &&
                           active === session.id &&
-                          mode === "platform" &&
-                          !!user &&
                           view === "workspace"
                         }
                         getTerminal={() =>

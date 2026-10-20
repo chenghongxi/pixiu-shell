@@ -17,6 +17,8 @@ pub(crate) struct Preferences {
     pub group_by: String,
     pub mode: String,
     pub platform_address: String,
+    pub ai_base_url: String,
+    pub ai_model: String,
 }
 
 impl Default for Preferences {
@@ -34,6 +36,8 @@ impl Default for Preferences {
             group_by: "group".into(),
             mode: "local".into(),
             platform_address: String::new(),
+            ai_base_url: String::new(),
+            ai_model: String::new(),
         }
     }
 }
@@ -114,6 +118,17 @@ impl Preferences {
         );
         if !self.platform_address.is_empty() {
             crate::platform::normalize_base(&self.platform_address)?;
+        }
+        ensure!(
+            self.ai_base_url.len() <= 2048 && self.ai_model.len() <= 256,
+            "AI 配置过长"
+        );
+        if !self.ai_base_url.is_empty() {
+            let url = url::Url::parse(&self.ai_base_url)?;
+            ensure!(
+                matches!(url.scheme(), "https" | "http") && url.host().is_some(),
+                "AI 网关地址无效"
+            );
         }
         Ok(())
     }

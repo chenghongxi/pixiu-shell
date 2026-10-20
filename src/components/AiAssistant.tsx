@@ -103,6 +103,7 @@ export function AiAssistant({
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<AiAction>(host ? "recent_output" : "chat");
+  const platformHost = host?.mode === "platform";
   const chatId = useRef(crypto.randomUUID());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -159,7 +160,7 @@ export function AiAssistant({
       await diagnose();
       return;
     }
-    if (activeRequest.current || (host && host.mode !== "platform") || !visible)
+    if (activeRequest.current || !visible)
       return;
     if (
       ["custom", "generate_command", "chat", "diagnose"].includes(action) &&
@@ -587,7 +588,9 @@ export function AiAssistant({
                 value={mode}
                 onChange={(value) => setMode(value as AiAction)}
                 options={actions.filter(
-                  (action) => host || action.value === "chat",
+                  (action) =>
+                    (host || action.value === "chat") &&
+                    (platformHost || action.value !== "diagnose"),
                 )}
                 disabled={busy}
               />

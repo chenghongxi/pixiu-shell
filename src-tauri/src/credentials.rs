@@ -5,6 +5,44 @@ use zeroize::Zeroizing;
 fn entry(id: Uuid) -> Result<keyring::Entry> {
     keyring::Entry::new("com.chenlian.tshell.ssh", &id.to_string()).context("无法访问系统凭据库")
 }
+
+fn ai_entry() -> Result<keyring::Entry> {
+    keyring::Entry::new("com.chenlian.tshell.ai", "openai-compatible-api-key")
+        .context("无法访问 AI 系统凭据")
+}
+
+pub(crate) fn ai_key_configured() -> Result<bool> {
+    match ai_entry()?.get_password() {
+        Ok(value) => Ok(!value.is_empty()),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(error) => Err(error).context("无法读取 AI 系统凭据"),
+    }
+}
+
+pub(crate) fn read_ai_key() -> Result<Zeroizing<String>> {
+    match ai_entry()?.get_password() {
+        Ok(value) if !value.is_empty() => Ok(Zeroizing::new(value)),
+        Ok(_) | Err(keyring::Error::NoEntry) => anyhow::bail!("请先在设置 > AI 中配置 API Key"),
+        Err(error) => Err(error).context("无法读取 AI 系统凭据"),
+    }
+}
+
+pub(crate) fn save_ai_key(value: &str) -> Result<()> {
+    ensure!(
+        !value.is_empty() && value.len() <= 8192 && !value.contains(['\0', '\n', '\r']),
+        "AI API Key 不能为空、过长或含换行符"
+    );
+    ai_entry()?
+        .set_password(value)
+        .context("保存 AI API Key 失败")
+}
+
+pub(crate) fn delete_ai_key() -> Result<()> {
+    match ai_entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error).context("删除 AI API Key 失败"),
+    }
+}
 pub(crate) fn read(id: Uuid) -> Result<Option<Zeroizing<String>>> {
     match entry(id)?.get_password() {
         Ok(password) => Ok(Some(Zeroizing::new(password))),
