@@ -128,7 +128,7 @@ pub(crate) async fn dingtalk_open(
         format!("dingtalk-login-{id}"),
         tauri::WebviewUrl::External(url),
     )
-    .title("TSHELL · 钉钉扫码登录")
+    .title("Pixiu Shell · 钉钉扫码登录")
     .inner_size(520.0, 680.0)
     .center()
     .on_navigation(move |url| flow.navigate(id, url))

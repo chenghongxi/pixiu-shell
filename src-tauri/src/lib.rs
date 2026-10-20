@@ -339,7 +339,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
             &[
                 &Submenu::with_items(
                     app,
-                    "TSHELL",
+                    "Pixiu Shell",
                     true,
                     &[
                         &Item::about(app, None, None)?,

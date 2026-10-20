@@ -883,7 +883,7 @@ export default function App() {
     purpose: "terminal" | "files" = "terminal",
   ) {
     if (!desktop) {
-      toast.error("请在 TSHELL 桌面应用中连接主机");
+      toast.error("请在 Pixiu Shell 桌面应用中连接主机");
       return;
     }
     if (host.mode === "local") {
@@ -1089,7 +1089,7 @@ export default function App() {
         >
           <div className="window-leading">
             <div className="traffic-light-space" aria-hidden="true" />
-            <strong>TSHELL</strong>
+            <strong>Pixiu Shell</strong>
           </div>
           <div className="toolbar-tabs" hidden={view !== "workspace"}>
             <div className="session-bar" ref={sessionBarRef}>
@@ -2187,7 +2187,7 @@ export default function App() {
               </span>
               <button onClick={() => settings("appearance")}>
                 {preferences.terminalTheme === "tshell"
-                  ? "TSHELL"
+                  ? "Pixiu Shell"
                   : preferences.terminalTheme}{" "}
                 · {activeSession?.fontSize ?? preferences.fontSize}px
               </button>

@@ -313,10 +313,10 @@ async fn run_chat(
             json!({"source":"bastion_terminal","hostId":host,"hostName":request.host_name,"hostIp":request.host_ip})
         };
         let value = client.json(Method::POST,"api/v1/agent/sessions", Some(&json!({
-            "title": if chat { "TSHELL Chat".to_string() } else { format!("TSHELL 主机 AI · {}",request.host_name) },
+            "title": if chat { "Pixiu Shell Chat".to_string() } else { format!("Pixiu Shell 主机 AI · {}",request.host_name) },
             "sessionKind": if chat { "chat" } else { "bastion_terminal" },
             "sessionKey": format!("tshell-{}:{}", if chat { "chat" } else { "terminal" }, request.terminal_id),
-            "agentName":"TSHELL AI 助手", "metadataJson":metadata
+            "agentName":"Pixiu Shell AI 助手", "metadataJson":metadata
         }))).await?;
         let session = Uuid::parse_str(value["sessionId"].as_str().context("AI 未返回 sessionId")?)?;
         if !*cancelled.borrow() {

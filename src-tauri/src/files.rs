@@ -68,7 +68,7 @@ pub(crate) fn connect_with_credentials(
             );
             ensure!(
                 rfd::MessageDialog::new()
-                    .set_title("TSHELL · 验证 SFTP 主机指纹")
+                    .set_title("Pixiu Shell · 验证 SFTP 主机指纹")
                     .set_description(message)
                     .set_buttons(rfd::MessageButtons::YesNo)
                     .show()

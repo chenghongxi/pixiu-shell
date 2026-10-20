@@ -35,7 +35,7 @@ pub fn askpass() -> Result<()> {
     if std::env::var("SSH_ASKPASS_PROMPT").as_deref() == Ok("confirm") || prompt.contains("yes/no")
     {
         let accepted = rfd::MessageDialog::new()
-            .set_title("TSHELL · 验证 SSH 主机指纹")
+            .set_title("Pixiu Shell · 验证 SSH 主机指纹")
             .set_description(&prompt)
             .set_buttons(rfd::MessageButtons::YesNo)
             .show()

@@ -159,7 +159,7 @@ export async function command<T>(
   args?: Record<string, unknown>,
 ): Promise<T> {
   if (!desktop)
-    throw new Error("请在 Tshell 桌面应用中使用此功能（npm run tauri dev）");
+    throw new Error("请在 Pixiu Shell 桌面应用中使用此功能（npm run tauri dev）");
   try {
     return await invoke<T>(name, args);
   } catch (error) {

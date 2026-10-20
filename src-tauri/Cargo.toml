@@ -1,8 +1,8 @@
 [package]
-name = "tshell"
+name = "pixiu-shell"
 version = "0.9.28"
 edition = "2024"
-description = "Tshell operations terminal"
+description = "Pixiu Shell operations terminal"
 publish = false
 
 [lib]

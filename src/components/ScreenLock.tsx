@@ -48,7 +48,7 @@ export function ScreenLock({ onUnlocked }: { onUnlocked: () => void }) {
         }}
       >
         <LockKeyhole />
-        <strong>TSHELL</strong>
+        <strong>Pixiu Shell</strong>
         <h2 id="screen-lock-title">工作区已锁定</h2>
         <p id="screen-lock-description">输入本机锁屏密码，继续使用现有会话。</p>
         <Input

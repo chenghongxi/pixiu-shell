@@ -126,7 +126,7 @@ function rdpErrorMessage(value: string): string {
   if (
     /guacd.*(?:127\.0\.0\.1|localhost).*4822|Connection refused/i.test(value)
   ) {
-    return "平台 RDP 网关不可用：运维平台服务端仍指向本机 127.0.0.1:4822。请在远程 ops-gateway 配置 RDP_GUACD_HOST（或使用 config-pro.toml 的 guacd 服务名）；TSHELL 不需要本地 guacd。";
+    return "平台 RDP 网关不可用：运维平台服务端仍指向本机 127.0.0.1:4822。请在远程 ops-gateway 配置 RDP_GUACD_HOST（或使用 config-pro.toml 的 guacd 服务名）；Pixiu Shell 不需要本地 guacd。";
   }
   return value || "RDP 连接失败";
 }
@@ -710,7 +710,7 @@ export function TerminalPane({
     // oxlint-disable-next-line react/set-state-in-effect
     setStatus("connecting");
     instance.writeln(
-      `\x1b[38;5;108mTSHELL\x1b[0m · ${target.mode === "shell" ? "正在启动本机终端…" : "正在建立连接…"}`,
+      `\x1b[38;5;108mPixiu Shell\x1b[0m · ${target.mode === "shell" ? "正在启动本机终端…" : "正在建立连接…"}`,
     );
     // Serialize writes so separate IPC tasks cannot reorder keystrokes or resize events.
     let writes: Promise<unknown> = Promise.resolve();
