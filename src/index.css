@@ -1440,7 +1440,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px 9px;
+  padding: 7px 10px;
   border-bottom: 0;
 }
 .file-toolbar > span {
@@ -1448,15 +1448,55 @@
   color: var(--muted-foreground);
   flex: 1;
 }
+.file-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-left: auto;
+}
 .file-error {
   margin: 10px;
   width: auto;
+}
+.file-transfer-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  align-items: center;
+  margin: 0 10px 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--tone-teal) 35%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--tone-teal) 7%, var(--surface));
+}
+.file-transfer-task > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.file-transfer-task strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.file-transfer-task span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.file-transfer-task progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 5px;
+  accent-color: var(--tone-teal);
 }
 .file-items {
   overflow: auto;
   flex: 1;
   min-height: 0;
-  padding: 4px 5px;
+  padding: 0 5px 4px;
 }
 .file-row {
   display: flex;
@@ -3373,8 +3413,8 @@ body,
 .activity-rail button[aria-label="切换黑白主题"] {
   color: var(--tone-amber);
 }
-.host-group summary > svg:nth-of-type(2) {
-  color: var(--tone-amber);
+.host-group summary > .storage-folder-icon {
+  color: var(--primary);
 }
 .host-row > svg:first-child,
 .table-host svg {
@@ -3450,7 +3490,7 @@ body,
   color: var(--tone-violet);
 }
 .window-actions button[aria-label="文件"] svg {
-  color: var(--tone-amber);
+  color: var(--primary);
 }
 .script-code-editor > div > span {
   color: var(--tone-teal);
@@ -3459,7 +3499,7 @@ body,
   --stat-color: var(--primary);
 }
 .workspace-stats > div:nth-child(2) {
-  --stat-color: var(--tone-amber);
+  --stat-color: var(--primary);
 }
 .workspace-stats > div:nth-child(3) {
   --stat-color: var(--tone-teal);
@@ -3974,7 +4014,7 @@ body,
 }
 /* File type colors without tinting the dark workspace blue. */
 .file-panel > header > div > svg {
-  color: var(--tone-amber);
+  color: var(--primary);
 }
 .file-panel > header {
   background: var(--toolbar);
@@ -3985,16 +4025,14 @@ body,
 .file-toolbar {
   border-bottom: 0;
 }
-.file-toolbar > button:last-child {
+.file-toolbar-actions > button:last-child {
   color: var(--tone-teal);
-  border-color: color-mix(in srgb, var(--tone-teal) 32%, var(--border));
-  background: color-mix(in srgb, var(--tone-teal) 7%, transparent);
 }
 .file-row {
   --file-color: var(--muted-foreground);
 }
 .file-row[data-kind="folder"] {
-  --file-color: var(--tone-amber);
+  --file-color: var(--primary);
 }
 .file-row[data-kind="code"] {
   --file-color: var(--tone-teal);
@@ -4027,7 +4065,7 @@ body,
   color: var(--foreground);
 }
 .file-row[data-kind="folder"] strong {
-  color: var(--tone-amber);
+  color: var(--primary);
 }
 .file-row button[aria-label^="下载"] {
   color: var(--tone-teal);
@@ -4592,7 +4630,7 @@ body,
 .resource-host-groups svg {
   width: 13px;
   height: 13px;
-  color: var(--tone-amber);
+  color: var(--primary);
   flex-shrink: 0;
 }
 .resource-host-groups input {

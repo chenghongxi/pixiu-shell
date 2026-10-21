@@ -63,6 +63,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Toaster } from "@/components/ui/sonner";
+import { ObjectStorageFolderIcon } from "@/components/ObjectStorageFolderIcon";
 import { Choice } from "@/components/Choice";
 import { PlatformLogin } from "@/components/PlatformLogin";
 import { SettingsPage } from "@/components/SettingsPage";
@@ -1093,13 +1094,6 @@ export default function App() {
           </div>
           <div className="toolbar-tabs" hidden={view !== "workspace"}>
             <div className="session-bar" ref={sessionBarRef}>
-              <button
-                className={cn("session-tab", active === "home" && "active")}
-                onClick={() => setActive("home")}
-              >
-                <Server />
-                连接管理
-              </button>
               {sessions.map((session) => (
                 <div
                   key={session.id}
@@ -1229,7 +1223,7 @@ export default function App() {
                     else if (selected) void connect(selected, "files");
                   }}
                 >
-                  <FolderOpen />
+                  <ObjectStorageFolderIcon />
                 </Button>
                 {activeSession?.target.mode !== "shell" ? (
                   <Button
@@ -1762,7 +1756,7 @@ export default function App() {
                           </span>
                         </div>
                         <div>
-                          <Folder />
+                          <ObjectStorageFolderIcon className="storage-folder-icon" />
                           <span>
                             主机分组<strong>{groups.size}</strong>
                           </span>

@@ -95,13 +95,10 @@ enum Session {
     Platform(mpsc::Sender<Message>),
 }
 
-const IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 struct SessionEntry {
     is_system_shell: bool,
     platform_host: Option<Uuid>,
     transport: Session,
-    last_input: Instant,
-    events: Channel<Event>,
 }
 #[derive(Default)]
 pub(crate) struct Sessions {
@@ -151,42 +148,6 @@ impl Sessions {
             .map_err(|_| anyhow!("终端状态锁不可用"))?;
         let entry = entries.get(&id).context("终端已关闭")?;
         Ok(!entry.is_system_shell && matches!(entry.transport, Session::Local(_)))
-    }
-    pub fn start_idle_monitor(self: &Arc<Self>) {
-        let sessions = Arc::downgrade(self);
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(1));
-                let Some(sessions) = sessions.upgrade() else {
-                    break;
-                };
-                sessions.expire_idle(Instant::now());
-            }
-        });
-    }
-    fn expire_idle(&self, now: Instant) {
-        let Ok(mut entries) = self.entries.lock() else {
-            return;
-        };
-        entries.retain(|_, entry| {
-            if entry.is_system_shell {
-                return true;
-            }
-            if now.saturating_duration_since(entry.last_input) < IDLE_TIMEOUT {
-                return true;
-            }
-            let _ = entry
-                .events
-                .send(Event::Status("10 分钟无操作，SSH 连接已自动关闭".into()));
-            if let Session::Local(local) = &mut entry.transport
-                && let Err(error) = local.terminate()
-            {
-                let _ = entry
-                    .events
-                    .send(Event::Error(format!("关闭空闲 SSH 进程失败：{error}")));
-            }
-            false
-        });
     }
     pub fn close(&self, id: Uuid) -> Result<()> {
         let mut entries = self
@@ -259,9 +220,6 @@ impl Sessions {
                                 .into(),
                         ))
                         .context("终端输入队列已满或连接已关闭")?,
-                }
-                if !data.is_empty() {
-                    entry.last_input = Instant::now();
                 }
             }
             Input::Resize { cols, rows } => {
@@ -433,8 +391,6 @@ impl Sessions {
                 is_system_shell,
                 platform_host: None,
                 transport: Session::Local(local),
-                last_input: Instant::now(),
-                events: channel.clone(),
             },
         );
         drop(entries);
@@ -518,8 +474,6 @@ impl Sessions {
                     is_system_shell: false,
                     platform_host: None,
                     transport: Session::Platform(sender),
-                    last_input: Instant::now(),
-                    events: channel.clone(),
                 },
             );
         let sessions = Arc::clone(self);
@@ -544,7 +498,7 @@ impl Sessions {
                                 if matches!(&event, Event::Status(message) if message == "ssh session connected")
                                     && let Ok(mut entries) = sessions.entries.lock()
                                     && let Some(entry) = entries.get_mut(&id)
-                                { entry.last_input = Instant::now(); entry.platform_host = Some(host_id); }
+                                { entry.platform_host = Some(host_id); }
                                 channel.send(event)?;
                             },
                             Some(Ok(Message::Binary(bytes))) => channel.send(Event::Output(bytes.to_vec()))?,
@@ -710,7 +664,7 @@ mod tests {
     }
 
     #[test]
-    fn real_system_shell_has_interactive_io_and_is_not_an_idle_ssh_session() -> Result<()> {
+    fn real_system_shell_has_interactive_io() -> Result<()> {
         let sessions = Arc::new(Sessions::default());
         let id = Uuid::new_v4();
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -720,14 +674,6 @@ mod tests {
         });
         sessions.open_system(id, events, 80, 24)?;
         let result = (|| -> Result<()> {
-            sessions.expire_idle(Instant::now() + Duration::from_secs(601));
-            assert!(
-                sessions
-                    .entries
-                    .lock()
-                    .map_err(|_| anyhow!("lock"))?
-                    .contains_key(&id)
-            );
             let command = if cfg!(windows) {
                 "echo TSHELL_SYSTEM^_SHELL_OK\r"
             } else {
@@ -777,8 +723,6 @@ mod tests {
                     is_system_shell: false,
                     platform_host: None,
                     transport: Session::Platform(sender),
-                    last_input: Instant::now(),
-                    events: Channel::new(|_| Ok(())),
                 },
             );
         assert!(sessions.platform_host(id).is_err());
@@ -793,49 +737,6 @@ mod tests {
         assert_eq!(sessions.platform_host(id)?, host);
         sessions.close(id)?;
         assert!(sessions.platform_host(id).is_err());
-        Ok(())
-    }
-    #[test]
-    fn idle_deadline_ignores_resize_and_resets_on_input() -> Result<()> {
-        let sessions = Sessions::default();
-        let id = Uuid::new_v4();
-        let now = Instant::now();
-        let (sender, mut receiver) = mpsc::channel(8);
-        sessions
-            .entries
-            .lock()
-            .map_err(|_| anyhow!("lock"))?
-            .insert(
-                id,
-                SessionEntry {
-                    is_system_shell: false,
-                    platform_host: None,
-                    transport: Session::Platform(sender),
-                    last_input: now - Duration::from_secs(599),
-                    events: Channel::new(|_| Ok(())),
-                },
-            );
-        sessions.send(
-            id,
-            Input::Resize {
-                cols: 100,
-                rows: 30,
-            },
-        )?;
-        sessions.expire_idle(now);
-        assert!(!receiver.is_closed());
-        sessions.send(
-            id,
-            Input::Input {
-                data: "ls\r".into(),
-                command: None,
-            },
-        )?;
-        sessions.expire_idle(now + Duration::from_secs(2));
-        assert!(!receiver.is_closed());
-        sessions.expire_idle(now + Duration::from_secs(601));
-        assert!(receiver.is_closed());
-        while receiver.try_recv().is_ok() {}
         Ok(())
     }
     #[test]

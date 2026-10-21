@@ -1,6 +1,5 @@
 import {
   Server,
-  FolderTree,
   Tags,
   KeyRound,
   Network,
@@ -28,6 +27,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ObjectStorageFolderIcon } from "./ObjectStorageFolderIcon";
 import { Button } from "./ui/button";
 import { Input, SearchInput } from "./ui/input";
 import { Textarea } from "./ui/textarea";
@@ -152,7 +152,7 @@ function rows(value: Row[] | { data?: Row[]; items?: Row[] }): Row[] {
 
 const icons = {
   hosts: Server,
-  nodes: FolderTree,
+  nodes: ObjectStorageFolderIcon,
   tags: Tags,
   credentials: KeyRound,
   proxies: Network,
@@ -873,7 +873,7 @@ export function PlatformResources({
           {kind === "hosts" ? (
             <aside className="resource-host-groups" aria-label="平台主机分组">
               <h3>
-                <FolderTree />
+                <ObjectStorageFolderIcon />
                 主机分组
               </h3>
               <SearchInput
@@ -916,7 +916,7 @@ export function PlatformResources({
                           setPage(1);
                         }}
                       >
-                        <FolderTree />
+                        <ObjectStorageFolderIcon />
                         <span>{title(node)}</span>
                       </button>
                     );

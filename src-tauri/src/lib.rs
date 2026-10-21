@@ -22,7 +22,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use tauri::{Manager, State, ipc::Channel};
@@ -39,6 +39,7 @@ struct AppState {
     known_hosts: PathBuf,
     platform: Mutex<Platform>,
     sessions: Arc<Sessions>,
+    transfer_cancels: Mutex<std::collections::HashMap<Uuid, Arc<AtomicBool>>>,
 }
 
 type CommandResult<T> = std::result::Result<T, String>;
@@ -388,7 +389,6 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 platform.configure(platform::normalize_base(&prefs.platform_address)?);
             }
             let sessions = Arc::new(Sessions::default());
-            sessions.start_idle_monitor();
             let screen_lock = Arc::new(screen_lock::ScreenLock::new(&database)?);
             app.manage(AppState {
                 screen_lock,
@@ -399,6 +399,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 known_hosts: directory.join("known_hosts"),
                 platform: Mutex::new(platform),
                 sessions,
+                transfer_cancels: Mutex::new(std::collections::HashMap::new()),
             });
             Ok(())
         })
@@ -423,6 +424,8 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 commands::groups_list,
                 commands::group_save,
                 commands::group_delete,
+                commands::openssh_config_import,
+                commands::identity_file_pick,
                 commands::dingtalk_open,
                 commands::dingtalk_close,
                 commands::dingtalk_status,
@@ -433,6 +436,9 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 commands::file_list,
                 commands::file_upload,
                 commands::file_download,
+                commands::file_transfer_cancel,
+                commands::file_upload_progress,
+                commands::file_download_progress,
                 commands::file_delete,
                 local_hosts,
                 save_host,

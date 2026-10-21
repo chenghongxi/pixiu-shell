@@ -1,6 +1,7 @@
-import { ChevronDown, Folder, Tag, KeyRound } from "lucide-react";
+import { ChevronDown, Tag, KeyRound } from "lucide-react";
 import type { Host } from "@/lib/api";
 import { HostOsIcon } from "./HostOsIcon";
+import { ObjectStorageFolderIcon } from "./ObjectStorageFolderIcon";
 interface Branch {
   path: string;
   label: string;
@@ -64,7 +65,7 @@ export function HostTree({
           }}
         >
           <ChevronDown />
-          {tags ? <Tag /> : <Folder />}
+          {tags ? <Tag /> : <ObjectStorageFolderIcon className="storage-folder-icon" />}
           <span>{branch.label}</span>
           <small>{count(branch)}</small>
         </summary>

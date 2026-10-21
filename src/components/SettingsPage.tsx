@@ -18,6 +18,7 @@ import {
   Keyboard,
   ShieldCheck,
   FolderPlus,
+  Import,
   Monitor,
   Palette,
   Plus,
@@ -207,6 +208,20 @@ export function SettingsPage({
       );
       await refresh();
       setRemove(null);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function importOpenSshConfig() {
+    setSaving(true);
+    try {
+      const result = await command<{ cancelled: boolean; count: number }>("openssh_config_import");
+      if (!result.cancelled) {
+        await refresh();
+        toast.success(result.count ? `已导入 ${result.count} 台 OpenSSH 主机` : "没有可导入的 OpenSSH 主机");
+      }
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
@@ -596,6 +611,10 @@ export function SettingsPage({
               <Button onClick={() => setEditor({})}>
                 <Plus data-icon="inline-start" />
                 添加主机
+              </Button>
+              <Button variant="outline" disabled={saving} onClick={() => void importOpenSshConfig()}>
+                <Import data-icon="inline-start" />
+                导入 OpenSSH
               </Button>
             </div>
             <div className="data-table-wrap">

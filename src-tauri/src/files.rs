@@ -6,10 +6,10 @@ use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 use std::{
     io::{Read, Write},
     path::Path,
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
-pub(crate) const MAX_TRANSFER: u64 = 64 * 1024 * 1024;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileItem {
@@ -144,10 +144,6 @@ pub(crate) fn list(sftp: &Sftp, path: &str) -> Result<Vec<FileItem>> {
 }
 pub(crate) fn upload(sftp: &Sftp, remote: &str, source: &Path) -> Result<()> {
     validate_path(remote)?;
-    ensure!(
-        std::fs::metadata(source)?.len() <= MAX_TRANSFER,
-        "单文件上限为 64 MiB"
-    );
     let mut input = std::fs::File::open(source)?;
     // Exclusive create prevents an accidental overwrite or symlink replacement.
     let mut output = sftp
@@ -162,14 +158,82 @@ pub(crate) fn upload(sftp: &Sftp, remote: &str, source: &Path) -> Result<()> {
     output.close()?;
     Ok(())
 }
+
+pub(crate) fn upload_with_progress(
+    sftp: &Sftp,
+    remote: &str,
+    source: &Path,
+    cancelled: &AtomicBool,
+    mut progress: impl FnMut(u64, u64) -> Result<()>,
+) -> Result<()> {
+    validate_path(remote)?;
+    let total = std::fs::metadata(source)?.len();
+    let mut input = std::fs::File::open(source)?;
+    let mut output = sftp
+        .open_mode(
+            Path::new(remote),
+            ssh2::OpenFlags::WRITE | ssh2::OpenFlags::CREATE | ssh2::OpenFlags::EXCLUSIVE,
+            0o600,
+            ssh2::OpenType::File,
+        )
+        .context("无法新建远程文件，若文件已存在请先重命名或删除")?;
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut transferred = 0_u64;
+    progress(0, total)?;
+    let result = (|| -> Result<()> {
+        loop {
+            ensure!(!cancelled.load(Ordering::SeqCst), "传输已取消");
+            let count = input.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            output.write_all(&buffer[..count])?;
+            transferred += count as u64;
+            progress(transferred, total)?;
+        }
+        output.close()?;
+        Ok(())
+    })();
+    if result.is_err() && cancelled.load(Ordering::SeqCst) {
+        let _ = sftp.unlink(Path::new(remote));
+    }
+    result
+}
 pub(crate) fn download(sftp: &Sftp, remote: &str) -> Result<Vec<u8>> {
     validate_path(remote)?;
     let mut data = Vec::new();
-    sftp.open(Path::new(remote))?
-        .take(MAX_TRANSFER + 1)
-        .read_to_end(&mut data)?;
-    ensure!(data.len() as u64 <= MAX_TRANSFER, "单文件上限为 64 MiB");
+    sftp.open(Path::new(remote))?.read_to_end(&mut data)?;
     Ok(data)
+}
+
+pub(crate) fn download_to_with_progress(
+    sftp: &Sftp,
+    remote: &str,
+    destination: &Path,
+    cancelled: &AtomicBool,
+    mut progress: impl FnMut(u64, u64) -> Result<()>,
+) -> Result<()> {
+    validate_path(remote)?;
+    let mut input = sftp.open(Path::new(remote))?;
+    let total = input.stat()?.size.unwrap_or(0);
+    let parent = destination.parent().context("保存路径无效")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut transferred = 0_u64;
+    progress(0, total)?;
+    loop {
+        ensure!(!cancelled.load(Ordering::SeqCst), "传输已取消");
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        transferred += count as u64;
+        temporary.write_all(&buffer[..count])?;
+        progress(transferred, total)?;
+    }
+    temporary.as_file().sync_all()?;
+    temporary.persist(destination).context("保存下载文件失败")?;
+    Ok(())
 }
 pub(crate) fn delete(sftp: &Sftp, remote: &str) -> Result<()> {
     validate_path(remote)?;

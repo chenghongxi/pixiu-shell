@@ -8,6 +8,7 @@ import {
   PlugZap,
   Server,
   CheckCircle2,
+  FolderOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -436,14 +437,30 @@ export function HostEditor({
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="host-key">私钥路径（可选）</FieldLabel>
-                  <Input
-                    id="host-key"
-                    placeholder="/Users/you/.ssh/id_ed25519"
-                    value={draft.identityFile}
-                    onChange={(event) =>
-                      update("identityFile", event.target.value)
-                    }
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="host-key"
+                      placeholder="~/.ssh/id_ed25519"
+                      value={draft.identityFile}
+                      onChange={(event) =>
+                        update("identityFile", event.target.value)
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label="选择 SSH 私钥"
+                      title="选择 SSH 私钥"
+                      onClick={() =>
+                        void command<string | null>("identity_file_pick").then((path) => {
+                          if (path) update("identityFile", path);
+                        }).catch((error) => setError(errorMessage(error)))
+                      }
+                    >
+                      <FolderOpen />
+                    </Button>
+                  </div>
                   <FieldDescription>
                     私钥优先；未配置私钥或密码时使用 SSH Agent。SFTP
                     需要可用的保存凭据。

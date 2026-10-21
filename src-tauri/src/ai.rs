@@ -331,9 +331,7 @@ async fn run_local_chat(
     endpoint.set_path(&format!("{path}/chat/completions"));
     endpoint.set_query(None);
     let body = request.body(Uuid::nil());
-    let content = body["content"]
-        .as_str()
-        .context("AI 请求内容无效")?;
+    let content = body["content"].as_str().context("AI 请求内容无效")?;
     let response = tokio::select! {
         _ = cancelled.changed() => return Ok(()),
         response = Client::new().post(endpoint).bearer_auth(key.as_str()).json(&json!({

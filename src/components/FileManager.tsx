@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Channel } from "@tauri-apps/api/core";
 import {
   ArrowUp,
+  ArrowRight,
   Download,
   File,
   FileCode2,
@@ -8,7 +10,6 @@ import {
   FileText,
   Image,
   ShieldCheck,
-  Folder,
   LoaderCircle,
   RefreshCw,
   Trash2,
@@ -28,10 +29,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { command, errorMessage, type FileItem, type Target } from "@/lib/api";
+import { ObjectStorageFolderIcon } from "./ObjectStorageFolderIcon";
 
 const directory = (file: FileItem) => ["directory", "dir"].includes(file.kind);
 function fileStyle(file: FileItem) {
-  if (directory(file)) return { kind: "folder", Icon: Folder };
+  if (directory(file)) return { kind: "folder", Icon: ObjectStorageFolderIcon };
   if (/\.(zip|gz|tgz|tar|7z|xz|bz2)$/i.test(file.name))
     return { kind: "archive", Icon: FileArchive };
   if (/\.(png|jpg|jpeg|webp|svg|gif)$/i.test(file.name))
@@ -64,6 +66,13 @@ export function FileManager({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [remove, setRemove] = useState<FileItem | null>(null);
+  const [transferTask, setTransferTask] = useState<{
+    id: string;
+    operation: "upload" | "download";
+    name: string;
+    transferred: number;
+    total: number;
+  } | null>(null);
   const generation = useRef(0);
   const load = useCallback(async () => {
     const current = ++generation.current;
@@ -106,6 +115,41 @@ export function FileManager({
     setBusy(true);
     setError("");
     try {
+      if (target.mode === "local") {
+        const id = crypto.randomUUID();
+        const name = operation === "download" ? file?.name ?? "文件" : "选择的文件";
+        const channel = new Channel<{
+          eventType: string;
+          payload?: { transferred?: number; total?: number };
+        }>();
+        channel.onmessage = (event) => {
+          if (event.eventType === "progress")
+            setTransferTask((current) =>
+              current?.id === id
+                ? {
+                    ...current,
+                    transferred: event.payload?.transferred ?? current.transferred,
+                    total: event.payload?.total ?? current.total,
+                  }
+                : current,
+            );
+        };
+        setTransferTask({ id, operation, name, transferred: 0, total: 0 });
+        const result = await command<{ cancelled: boolean }>(
+          `file_${operation}_progress`,
+          {
+            target,
+            id,
+            channel,
+            ...(operation === "upload" ? { directory: path } : { path: file?.path }),
+          },
+        );
+        if (!result.cancelled) {
+          toast.success(operation === "upload" ? "上传完成" : "下载完成");
+          if (operation === "upload") await load();
+        }
+        return;
+      }
       const result = await command<{ cancelled: boolean }>(
         `file_${operation}`,
         {
@@ -123,6 +167,15 @@ export function FileManager({
       setError(errorMessage(error));
     } finally {
       setBusy(false);
+      setTransferTask(null);
+    }
+  }
+  async function cancelTransfer() {
+    if (!transferTask) return;
+    try {
+      await command("file_transfer_cancel", { id: transferTask.id });
+    } catch (error) {
+      setError(errorMessage(error));
     }
   }
   async function deleteFile() {
@@ -143,7 +196,7 @@ export function FileManager({
     <aside className="file-panel">
       <header>
         <div>
-          <Folder />
+          <ObjectStorageFolderIcon />
           <strong>文件管理</strong>
           <span>{name}</span>
         </div>
@@ -183,8 +236,15 @@ export function FileManager({
           disabled={busy}
           onChange={(event) => setInput(event.target.value)}
         />
-        <Button type="submit" variant="outline" size="sm" disabled={busy}>
-          前往
+        <Button
+          type="submit"
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy || input === path}
+          aria-label="打开路径"
+          title="打开路径"
+        >
+          <ArrowRight />
         </Button>
       </form>
       <div className="file-toolbar">
@@ -193,29 +253,52 @@ export function FileManager({
             ? "读取目录…"
             : `${files.filter(directory).length} 个目录 · ${files.filter((file) => !directory(file)).length} 个文件`}
         </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="刷新文件列表"
-          disabled={loading || busy}
-          onClick={() => void load()}
-        >
-          <RefreshCw className={loading ? "animate-spin" : undefined} />
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy || loading || !!error}
-          onClick={() => void transfer("upload")}
-        >
-          <Upload data-icon="inline-start" />
-          上传
-        </Button>
+        <div className="file-toolbar-actions">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="刷新文件列表"
+            title="刷新文件列表"
+            disabled={loading || busy}
+            onClick={() => void load()}
+          >
+            <RefreshCw className={loading ? "animate-spin" : undefined} />
+          </Button>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            disabled={busy || loading || !!error}
+            aria-label="上传文件"
+            title="上传文件"
+            onClick={() => void transfer("upload")}
+          >
+            <Upload />
+          </Button>
+        </div>
       </div>
       {error ? (
         <Alert variant="destructive" className="file-error">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      ) : null}
+      {transferTask ? (
+        <div className="file-transfer-task" role="status" aria-live="polite">
+          <div>
+            <strong>{transferTask.operation === "upload" ? "正在上传" : "正在下载"} {transferTask.name}</strong>
+            <span>
+              {transferTask.total
+                ? `${sizeLabel(transferTask.transferred)} / ${sizeLabel(transferTask.total)}`
+                : "正在准备传输…"}
+            </span>
+          </div>
+          <progress
+            value={transferTask.total ? transferTask.transferred : undefined}
+            max={transferTask.total || undefined}
+          />
+          <Button size="sm" variant="outline" onClick={() => void cancelTransfer()}>
+            取消
+          </Button>
+        </div>
       ) : null}
       <div className="file-items" aria-busy={loading || busy}>
         {loading ? (
@@ -283,7 +366,7 @@ export function FileManager({
         ) : (
           <>
             <ShieldCheck /> {target.mode === "local" ? "SFTP" : "平台文件网关"}{" "}
-            · 单文件上限 64 MiB
+            · 支持大文件传输
           </>
         )}
       </footer>
