@@ -21,9 +21,8 @@ import {
   Import,
   Monitor,
   Palette,
-  Plus,
   Server,
-  Settings2,
+  ServerPlus,
   Building2,
   Sparkles,
   Trash2,
@@ -230,14 +229,6 @@ export function SettingsPage({
   }
   return (
     <div className="settings-page" data-settings-tab={tab}>
-      <div className="page-title">
-        <div>
-          <span className="overline">PREFERENCES</span>
-          <h1>配置中心</h1>
-          <p>管理连接、外观与终端偏好，配置保存在这台设备。</p>
-        </div>
-        <Settings2 />
-      </div>
       <Tabs
         value={tab}
         onValueChange={onTab}
@@ -278,8 +269,9 @@ export function SettingsPage({
             </>
           ) : null}
         </TabsList>
-        {platformEnabled ? (
-          <>
+        <div className="settings-main">
+          {platformEnabled ? (
+            <>
             <TabsContent value="resources">
               <PlatformResources
                 onChanged={refreshPlatform}
@@ -287,24 +279,24 @@ export function SettingsPage({
                 onCreateHandled={onResourceCreateHandled}
               />
             </TabsContent>
-          </>
-        ) : null}
-        <TabsContent value="shortcuts">
+            </>
+          ) : null}
+          <TabsContent value="shortcuts">
           <ShortcutSettings
             values={draft.shortcuts ?? {}}
             onChange={(value) => update("shortcuts", value)}
             onSave={() => void save()}
             busy={saving}
           />
-        </TabsContent>
-        <TabsContent value="security">
+          </TabsContent>
+          <TabsContent value="security">
           <LockSettings
             status={lockStatus}
             onStatus={onLockStatus}
             onLock={onLock}
           />
-        </TabsContent>
-        <TabsContent value="ai">
+          </TabsContent>
+          <TabsContent value="ai">
           <form onSubmit={saveAi} className="settings-form">
             <div className="settings-section">
               <h2>离线 SSH AI</h2>
@@ -366,8 +358,8 @@ export function SettingsPage({
               <Button disabled={saving}>保存 AI 配置</Button>
             </div>
           </form>
-        </TabsContent>
-        <TabsContent value="appearance">
+          </TabsContent>
+          <TabsContent value="appearance">
           <form onSubmit={save} className="shortcut-settings-form">
             <Card className="transfer-settings">
               <CardHeader>
@@ -600,8 +592,8 @@ export function SettingsPage({
               <Button disabled={saving}>保存配置</Button>
             </div>
           </form>
-        </TabsContent>
-        <TabsContent value="hosts">
+          </TabsContent>
+          <TabsContent value="hosts">
           <div className="settings-section">
             <div className="section-heading">
               <div>
@@ -609,8 +601,8 @@ export function SettingsPage({
                 <p>管理独立主机配置，平台主机仍由运维平台授权。</p>
               </div>
               <Button onClick={() => setEditor({})}>
-                <Plus data-icon="inline-start" />
-                添加主机
+                <ServerPlus data-icon="inline-start" />
+                添加本地主机
               </Button>
               <Button variant="outline" disabled={saving} onClick={() => void importOpenSshConfig()}>
                 <Import data-icon="inline-start" />
@@ -741,8 +733,8 @@ export function SettingsPage({
               ))}
             </div>
           </div>
-        </TabsContent>
-        <TabsContent value="platform">
+          </TabsContent>
+          <TabsContent value="platform">
           <form onSubmit={save} className="settings-form">
             <div className="settings-section">
               <h2>平台连接</h2>
@@ -786,7 +778,8 @@ export function SettingsPage({
               <Button disabled={saving}>保存配置</Button>
             </div>
           </form>
-        </TabsContent>
+          </TabsContent>
+        </div>
       </Tabs>
       {editor ? (
         <HostEditor

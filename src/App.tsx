@@ -36,6 +36,7 @@ import {
   RefreshCw,
   Search,
   Server,
+  ServerPlus,
   Square,
   Settings2,
   ShieldCheck,
@@ -1063,9 +1064,7 @@ export default function App() {
     const tabBounds = tab.getBoundingClientRect();
     const tabStart = bar.scrollLeft + tabBounds.left - barBounds.left;
     const tabEnd = tabStart + tabBounds.width;
-    const plus = bar.querySelector<HTMLElement>(".session-new-tab");
-    const usableWidth =
-      bar.clientWidth - (plus?.getBoundingClientRect().width ?? 0) - 6;
+    const usableWidth = bar.clientWidth - 6;
     if (tabStart < bar.scrollLeft) bar.scrollLeft = tabStart;
     else if (tabEnd > bar.scrollLeft + usableWidth)
       bar.scrollLeft = tabEnd - usableWidth;
@@ -1125,34 +1124,11 @@ export default function App() {
                   </Button>
                 </div>
               ))}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="session-new-tab"
-                aria-label="新建本机终端"
-                title="新建本机终端（⌘T / Ctrl+T）"
-                onClick={newSystemShell}
-              >
-                <Plus />
-              </Button>
             </div>
           </div>
-          {view !== "workspace" ? (
-            <span className="toolbar-settings-label">
-              {view === "scripts" ? "主机脚本" : "配置中心"}
-            </span>
-          ) : null}
           <div className="window-drag-space" />
           <div className="window-actions">
-            {view !== "workspace" ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setView("workspace")}
-              >
-                返回终端
-              </Button>
-            ) : (
+            {view === "workspace" ? (
               <>
                 {activeSession ? (
                   <>
@@ -1241,7 +1217,7 @@ export default function App() {
                   </Button>
                 ) : null}
               </>
-            )}
+            ) : null}
           </div>
           {isWindowsPlatform ? (
             <div className="windows-controls" aria-label="窗口控制">
@@ -1343,6 +1319,16 @@ export default function App() {
           >
             <TerminalSquare />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="配置中心"
+            title="配置中心"
+            data-active={view === "settings"}
+            onClick={() => settings()}
+          >
+            <Settings2 />
+          </Button>
           <div className="rail-spacer" />
           <Button
             variant="ghost"
@@ -1364,15 +1350,6 @@ export default function App() {
             }
           >
             {resolvedTheme === "dark" ? <Sun /> : <Moon />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="配置中心"
-            data-active={view === "settings"}
-            onClick={() => settings()}
-          >
-            <Settings2 />
           </Button>
         </nav>
         <aside
@@ -1448,17 +1425,16 @@ export default function App() {
               >
                 <RefreshCw className={loading ? "animate-spin" : undefined} />
               </Button>
-              {mode === "local" || user ? (
+              {mode === "platform" && user ? (
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="添加主机"
-                  onClick={() =>
-                    mode === "local"
-                      ? settings("hosts", true)
-                      : (settings("resources"),
-                        setResourceCreateRequest((value) => value + 1))
-                  }
+                  aria-label="添加平台主机"
+                  title="添加平台主机"
+                  onClick={() => {
+                    settings("resources");
+                    setResourceCreateRequest((value) => value + 1);
+                  }}
                 >
                   <Plus />
                 </Button>
@@ -1530,7 +1506,8 @@ export default function App() {
                     variant="outline"
                     onClick={() => settings("hosts", true)}
                   >
-                    添加主机
+                    <ServerPlus data-icon="inline-start" />
+                    添加本地主机
                   </Button>
                 ) : null}
               </div>
@@ -1634,9 +1611,13 @@ export default function App() {
                       </p>
                     </div>
                     {mode === "local" ? (
-                      <Button size="sm" onClick={() => settings("hosts", true)}>
-                        <Plus data-icon="inline-start" />
-                        添加主机
+                      <Button
+                        size="sm"
+                        className="add-host-button"
+                        onClick={() => settings("hosts", true)}
+                      >
+                        <ServerPlus data-icon="inline-start" />
+                        添加本地主机
                       </Button>
                     ) : (
                       <Button
