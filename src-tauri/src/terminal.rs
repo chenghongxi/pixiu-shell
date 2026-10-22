@@ -290,14 +290,14 @@ impl Sessions {
                 format!("'{}'", executable.replace('\'', "'\"'\"'"))
             };
             command.arg("-o");
-            command.arg(format!("ProxyCommand={quoted} --tshell-proxy"));
-            command.env("TSHELL_PROXY_CONFIG", serde_json::to_string(proxy)?);
+            command.arg(format!("ProxyCommand={quoted} --pixiu-shell-proxy"));
+            command.env("PIXIU_SHELL_PROXY_CONFIG", serde_json::to_string(proxy)?);
             command.env(
-                "TSHELL_PROXY_ID",
+                "PIXIU_SHELL_PROXY_ID",
                 host.id.context("主机缺少 ID")?.to_string(),
             );
-            command.env("TSHELL_PROXY_TARGET", &host.address);
-            command.env("TSHELL_PROXY_PORT", host.port.to_string());
+            command.env("PIXIU_SHELL_PROXY_TARGET", &host.address);
+            command.env("PIXIU_SHELL_PROXY_PORT", host.port.to_string());
         }
         command.arg("-p");
         command.arg(host.port.to_string());
@@ -327,9 +327,9 @@ impl Sessions {
             );
             command.env("SSH_ASKPASS", std::env::current_exe()?);
             command.env("SSH_ASKPASS_REQUIRE", "force");
-            command.env("TSHELL_ASKPASS", "1");
-            command.env("TSHELL_CREDENTIAL_ID", id.to_string());
-            command.env("DISPLAY", "tshell:0");
+            command.env("PIXIU_SHELL_ASKPASS", "1");
+            command.env("PIXIU_SHELL_CREDENTIAL_ID", id.to_string());
+            command.env("DISPLAY", "pixiu-shell:0");
         }
         command.arg("--");
         command.arg(host.address);
@@ -675,9 +675,9 @@ mod tests {
         sessions.open_system(id, events, 80, 24)?;
         let result = (|| -> Result<()> {
             let command = if cfg!(windows) {
-                "echo TSHELL_SYSTEM^_SHELL_OK\r"
+                "echo PIXIU_SHELL_SYSTEM^_SHELL_OK\r"
             } else {
-                "printf '%s%s\\n' 'TSHELL_' 'SYSTEM_SHELL_OK'\r"
+                "printf '%s%s\\n' 'PIXIU_SHELL_' 'SYSTEM_SHELL_OK'\r"
             };
             sessions.send(
                 id,
@@ -697,7 +697,7 @@ mod tests {
                 if event["type"] == "output" {
                     let bytes: Vec<u8> = serde_json::from_value(event["data"].to_owned())?;
                     output.push_str(&String::from_utf8_lossy(&bytes));
-                    if output.contains("TSHELL_SYSTEM_SHELL_OK") {
+                    if output.contains("PIXIU_SHELL_SYSTEM_SHELL_OK") {
                         return Ok(());
                     }
                 }
@@ -755,11 +755,11 @@ mod tests {
         ));
     }
     #[test]
-    #[ignore = "requires tests/ssh_fixture.py and TSHELL_SSH_FIXTURE"]
+    #[ignore = "requires tests/ssh_fixture.py and PIXIU_SHELL_SSH_FIXTURE"]
     fn real_ssh_pty_input_resize_and_local_forward() -> Result<()> {
         use std::net::{TcpListener, TcpStream};
         let fixture: Value =
-            serde_json::from_slice(&std::fs::read(std::env::var("TSHELL_SSH_FIXTURE")?)?)?;
+            serde_json::from_slice(&std::fs::read(std::env::var("PIXIU_SHELL_SSH_FIXTURE")?)?)?;
         let echo = TcpListener::bind("127.0.0.1:0")?;
         echo.set_nonblocking(true)?;
         let destination = echo.local_addr()?.port();
@@ -843,7 +843,7 @@ mod tests {
             sessions.send(
                 id,
                 Input::Input {
-                    data: "tshell-input-test\r".into(),
+                    data: "pixiu-shell-input-test\r".into(),
                     command: None,
                 },
             )?;

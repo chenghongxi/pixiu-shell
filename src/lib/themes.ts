@@ -60,7 +60,7 @@ function palette(
   };
 }
 export const terminalThemes: Record<string, Palette> = {
-  tshell: {
+  "pixiu-shell": {
     name: "Pixiu Shell Carbon",
     description: "统一石墨黑 · 清晰冷色",
     theme: palette(GRAPHITE_BACKGROUND, "#d4d8e0", "#83b4ff", [

@@ -245,7 +245,7 @@ export const defaultPreferences: Preferences = {
   aiPanelWidth: 400,
   sidebarHidden: false,
   theme: "dark",
-  terminalTheme: "tshell",
+  terminalTheme: "pixiu-shell",
   fontSize: 13,
   scrollback: 10000,
   groupBy: "group",

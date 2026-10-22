@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Only the bundled main window can invoke Tshell commands.",
+  "description": "Only the bundled main window can invoke Pixiu Shell commands.",
   "windows": [
     "main"
   ],

@@ -11,11 +11,11 @@ fi
 
 PRODUCT="$(node -p 'require("./src-tauri/tauri.conf.json").productName')"
 VERSION="$(node -p 'require("./package.json").version')"
-EXPECTED_BUNDLE_ID="com.chenlian.tshell"
+EXPECTED_BUNDLE_ID="com.lbemi.pixiu-shell"
 CONFIGURED_BUNDLE_ID="$(node -p 'require("./src-tauri/tauri.conf.json").identifier')"
 IDENTITY="${APPLE_SIGNING_IDENTITY:-Developer ID Application: Hangzhou Chenlian Information Technology Co., Ltd (GC679455P9)}"
 TEAM_ID="${APPLE_SIGNING_TEAM_ID:-GC679455P9}"
-PROFILE="${APPLE_NOTARY_PROFILE:-TSHELL_NOTARY}"
+PROFILE="${APPLE_NOTARY_PROFILE:-PIXIU_SHELL_NOTARY}"
 BUNDLE_DIR="$ROOT/src-tauri/target/release/bundle/macos"
 APP="$BUNDLE_DIR/$PRODUCT.app"
 CANDIDATE="$BUNDLE_DIR/$PRODUCT-$VERSION-macos-signed-notarization-pending.zip"

@@ -3,11 +3,12 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 fn entry(id: Uuid) -> Result<keyring::Entry> {
-    keyring::Entry::new("com.chenlian.tshell.ssh", &id.to_string()).context("无法访问系统凭据库")
+    keyring::Entry::new(crate::auth_store::SSH_SERVICE, &id.to_string())
+        .context("无法访问系统凭据库")
 }
 
 fn ai_entry() -> Result<keyring::Entry> {
-    keyring::Entry::new("com.chenlian.tshell.ai", "openai-compatible-api-key")
+    keyring::Entry::new(crate::auth_store::AI_SERVICE, crate::auth_store::AI_ACCOUNT)
         .context("无法访问 AI 系统凭据")
 }
 
@@ -86,7 +87,7 @@ pub fn askpass() -> Result<()> {
         normalized.contains("password") || normalized.contains("passphrase"),
         "不支持的 SSH 认证提示"
     );
-    let id = Uuid::parse_str(&std::env::var("TSHELL_CREDENTIAL_ID")?)?;
+    let id = Uuid::parse_str(&std::env::var("PIXIU_SHELL_CREDENTIAL_ID")?)?;
     let password = read(id)?.context("此主机未保存密码")?;
     std::io::stdout().write_all(password.as_bytes())?;
     std::io::stdout().write_all(b"\n")?;
@@ -97,20 +98,20 @@ pub fn askpass() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    #[ignore = "requires TSHELL_APP_EXECUTABLE pointing to a built desktop binary"]
+    #[ignore = "requires PIXIU_SHELL_APP_EXECUTABLE pointing to a built desktop binary"]
     fn real_askpass_helper_uses_keychain_without_argv_secrets() -> Result<()> {
         let id = Uuid::new_v4();
-        let executable = std::env::var("TSHELL_APP_EXECUTABLE")?;
-        write(id, "tshell-fixture-secret")?;
+        let executable = std::env::var("PIXIU_SHELL_APP_EXECUTABLE")?;
+        write(id, "pixiu-fixture-secret")?;
         let result = std::process::Command::new(executable)
-            .env("TSHELL_ASKPASS", "1")
-            .env("TSHELL_CREDENTIAL_ID", id.to_string())
+            .env("PIXIU_SHELL_ASKPASS", "1")
+            .env("PIXIU_SHELL_CREDENTIAL_ID", id.to_string())
             .arg("fixture@localhost's password:")
             .output();
         delete(id)?;
         let output = result?;
         ensure!(output.status.success(), "askpass helper failed");
-        assert_eq!(output.stdout, b"tshell-fixture-secret\n");
+        assert_eq!(output.stdout, b"pixiu-fixture-secret\n");
         assert!(output.stderr.is_empty());
         Ok(())
     }

@@ -80,7 +80,7 @@ pub(crate) fn connect_with_credentials(
             } else {
                 format!("[{}]:{}", host.address, host.port)
             };
-            known.add(&hostname, key, "TSHELL", key_type.into())?;
+            known.add(&hostname, key, "PIXIU_SHELL", key_type.into())?;
             known.write_file(known_hosts, KnownHostFileKind::OpenSSH)?;
         }
         CheckResult::Mismatch => bail!("SSH 主机指纹已改变，连接已拒绝。请先确认服务器身份。"),
@@ -261,10 +261,10 @@ mod tests {
         assert!(validate_path("/tmp/中文 文件.txt").is_ok());
     }
     #[test]
-    #[ignore = "requires tests/ssh_fixture.py and TSHELL_SSH_FIXTURE"]
+    #[ignore = "requires tests/ssh_fixture.py and PIXIU_SHELL_SSH_FIXTURE"]
     fn draft_connectivity_uses_ephemeral_password_and_rejects_bad_auth() -> Result<()> {
         let fixture: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(std::env::var("TSHELL_SSH_FIXTURE")?)?)?;
+            serde_json::from_slice(&std::fs::read(std::env::var("PIXIU_SHELL_SSH_FIXTURE")?)?)?;
         let host = LocalHost {
             id: None,
             name: "unsaved draft".into(),
@@ -281,7 +281,7 @@ mod tests {
         };
         let known = Path::new(fixture["knownHosts"].as_str().context("known hosts")?);
         assert!(connect_with_credentials(&host, known, Some("incorrect-password"), None).is_err());
-        let sftp = connect_with_credentials(&host, known, Some("tshell-fixture-password"), None)?;
+        let sftp = connect_with_credentials(&host, known, Some("pixiu-fixture-password"), None)?;
         assert!(
             list(&sftp, "/")?
                 .iter()
@@ -291,10 +291,10 @@ mod tests {
         Ok(())
     }
     #[test]
-    #[ignore = "requires tests/ssh_fixture.py and TSHELL_SSH_FIXTURE"]
+    #[ignore = "requires tests/ssh_fixture.py and PIXIU_SHELL_SSH_FIXTURE"]
     fn real_sftp_key_and_password_roundtrip() -> Result<()> {
         let fixture: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(std::env::var("TSHELL_SSH_FIXTURE")?)?)?;
+            serde_json::from_slice(&std::fs::read(std::env::var("PIXIU_SHELL_SSH_FIXTURE")?)?)?;
         let mut host = LocalHost {
             id: Some(uuid::Uuid::new_v4()),
             name: "fixture".into(),
@@ -335,7 +335,7 @@ mod tests {
                 .any(|entry| entry.name == "roundtrip.txt")
         );
         let id = host.id.context("id")?;
-        crate::credentials::write(id, "tshell-fixture-password")?;
+        crate::credentials::write(id, "pixiu-fixture-password")?;
         host.identity_file.clear();
         host.has_password = true;
         let result = connect(&host, known).and_then(|sftp| download(&sftp, "/welcome.txt"));

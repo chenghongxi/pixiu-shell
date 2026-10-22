@@ -64,7 +64,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { desktop } from "@/lib/api";
 
 const terminalSearchDecorations = {
-  tshell: {
+  "pixiu-shell": {
     matchBackground: "#334b5d",
     matchBorder: "#6fa9c7",
     matchOverviewRuler: "#6fa9c7",
@@ -666,7 +666,7 @@ export function TerminalPane({
       lineHeight: 1.25,
       scrollback: 5000,
       overviewRuler: { width: 6 },
-      theme: terminalThemes.tshell.theme,
+      theme: terminalThemes["pixiu-shell"].theme,
       // SearchAddon uses xterm's decoration API to highlight and scroll to matches.
       allowProposedApi: true,
     });
@@ -948,7 +948,7 @@ export function TerminalPane({
       decorations:
         terminalSearchDecorations[
           preferences.terminalTheme as keyof typeof terminalSearchDecorations
-        ] ?? terminalSearchDecorations.tshell,
+        ] ?? terminalSearchDecorations["pixiu-shell"],
     } as const;
     const found =
       direction === "previous"
@@ -1026,7 +1026,7 @@ export function TerminalPane({
           accessPathId: target.accessPathId,
           command: pendingCommandApproval.command,
           decision,
-          clientKind: "tshell",
+          clientKind: "pixiu-shell",
         });
         setPendingCommandApproval((current) =>
           current ? { ...current, approval } : current,
@@ -1139,7 +1139,7 @@ export function TerminalPane({
   useEffect(() => {
     if (terminal.current) {
       terminal.current.options.theme = (
-        terminalThemes[preferences.terminalTheme] ?? terminalThemes.tshell
+        terminalThemes[preferences.terminalTheme] ?? terminalThemes["pixiu-shell"]
       ).theme;
       terminal.current.options.fontSize = preferences.fontSize;
       terminal.current.options.scrollback = preferences.scrollback;
@@ -1204,7 +1204,7 @@ export function TerminalPane({
       style={
         {
           "--terminal-background": (
-            terminalThemes[preferences.terminalTheme] ?? terminalThemes.tshell
+            terminalThemes[preferences.terminalTheme] ?? terminalThemes["pixiu-shell"]
           ).theme.background,
           background: "var(--terminal-background)",
         } as CSSProperties

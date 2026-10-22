@@ -122,7 +122,7 @@ impl Platform {
         Ok(Self {
             store: Arc::new(crate::auth_store::KeychainStore),
             client: Client::builder()
-                .user_agent(concat!("TSHELL/", env!("CARGO_PKG_VERSION")))
+                .user_agent(concat!("PixiuShell/", env!("CARGO_PKG_VERSION")))
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30))
                 .redirect(reqwest::redirect::Policy::none())
@@ -242,7 +242,7 @@ impl Platform {
                 .refresh_token
                 .as_deref()
                 .context("会话已过期，请重新登录")?;
-            let body = json!({"refresh_token": refresh, "sessionKind": "tshell"});
+            let body = json!({"refresh_token": refresh, "sessionKind": "pixiu-shell"});
             let result = self
                 .request(Method::POST, "api/v1/auth/refresh", Some(&body), None)
                 .await;
@@ -453,7 +453,7 @@ impl Platform {
         match request {
             Request::Login { username, password } => {
                 let body =
-                    json!({"username": username, "password": password, "sessionKind": "tshell"});
+                    json!({"username": username, "password": password, "sessionKind": "pixiu-shell"});
                 let login = self
                     .request(Method::POST, "api/v1/auth/login", Some(&body), None)
                     .await?;
@@ -477,7 +477,7 @@ impl Platform {
                 login_ticket,
                 company_id,
             } => {
-                let body = json!({"auth_code": auth_code, "loginTicket": login_ticket, "companyId": company_id, "sessionKind": "tshell"});
+                let body = json!({"auth_code": auth_code, "loginTicket": login_ticket, "companyId": company_id, "sessionKind": "pixiu-shell"});
                 let mut result = self
                     .request(
                         Method::POST,
@@ -557,7 +557,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn platform_contract_uses_tshell_session_and_connect_filter() -> Result<()> {
+    async fn platform_contract_uses_pixiu_shell_session_and_connect_filter() -> Result<()> {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         let address = listener.local_addr()?;
@@ -624,7 +624,7 @@ mod tests {
         let requests = server
             .join()
             .map_err(|_| anyhow!("test server panicked"))??;
-        assert!(requests[0].contains("\"sessionKind\":\"tshell\""));
+        assert!(requests[0].contains("\"sessionKind\":\"pixiu-shell\""));
         assert!(
             requests[1].contains("accessOperation=connect")
                 && requests[1].contains("bastionEnabled=true")
@@ -775,7 +775,7 @@ mod persistence_tests {
         assert_eq!(reopened.restore_identity().await?["username"], "ops");
         let requests = worker.join().map_err(|_| anyhow!("fixture failed"))??;
         assert!(requests[0].starts_with("POST /api/v1/auth/refresh"));
-        assert!(requests[0].contains("\"sessionKind\":\"tshell\""));
+        assert!(requests[0].contains("\"sessionKind\":\"pixiu-shell\""));
         assert!(
             requests[1]
                 .to_ascii_lowercase()

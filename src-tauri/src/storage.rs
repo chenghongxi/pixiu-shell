@@ -134,10 +134,10 @@ static MIGRATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 const SCHEMA_VERSION: u32 = 3;
 
 pub(crate) fn open(path: &Path) -> Result<Connection> {
-    let mut connection = Connection::open(path).context("无法打开 TSHELL SQLite 数据库")?;
+    let mut connection = Connection::open(path).context("无法打开 Pixiu Shell SQLite 数据库")?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
     let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    ensure!(version <= SCHEMA_VERSION, "数据库版本较新，请升级 TSHELL");
+    ensure!(version <= SCHEMA_VERSION, "数据库版本较新，请升级 Pixiu Shell");
     if version == SCHEMA_VERSION {
         return Ok(connection);
     }

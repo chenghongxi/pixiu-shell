@@ -14,7 +14,7 @@ use std::{
 };
 use tauri::State;
 use zeroize::Zeroizing;
-const ACCOUNT: &str = "__tshell_screen_lock";
+pub(crate) const ACCOUNT: &str = "__pixiu_shell_screen_lock";
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LockStatus {

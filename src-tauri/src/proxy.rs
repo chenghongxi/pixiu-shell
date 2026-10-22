@@ -43,7 +43,7 @@ impl Proxy {
 }
 fn entry(id: Uuid) -> Result<keyring::Entry> {
     Ok(keyring::Entry::new(
-        "com.chenlian.tshell.proxy",
+        crate::auth_store::PROXY_SERVICE,
         &id.to_string(),
     )?)
 }
@@ -210,10 +210,10 @@ fn handshake(
     Ok(())
 }
 pub(crate) fn helper() -> Result<()> {
-    let proxy: Proxy = serde_json::from_str(&std::env::var("TSHELL_PROXY_CONFIG")?)?;
-    let host = std::env::var("TSHELL_PROXY_TARGET")?;
-    let port = std::env::var("TSHELL_PROXY_PORT")?.parse()?;
-    let id = Uuid::parse_str(&std::env::var("TSHELL_PROXY_ID")?)?;
+    let proxy: Proxy = serde_json::from_str(&std::env::var("PIXIU_SHELL_PROXY_CONFIG")?)?;
+    let host = std::env::var("PIXIU_SHELL_PROXY_TARGET")?;
+    let port = std::env::var("PIXIU_SHELL_PROXY_PORT")?.parse()?;
+    let id = Uuid::parse_str(&std::env::var("PIXIU_SHELL_PROXY_ID")?)?;
     let mut socket = connect(&host, port, Some(&proxy), Some(id))?;
     socket.set_read_timeout(None)?;
     socket.set_write_timeout(None)?;
@@ -313,9 +313,9 @@ mod tests {
 mod helper_tests {
     use super::*;
     #[test]
-    #[ignore = "requires TSHELL_APP_EXECUTABLE pointing to a built desktop binary"]
+    #[ignore = "requires PIXIU_SHELL_APP_EXECUTABLE pointing to a built desktop binary"]
     fn native_proxy_helper_bridges_stdio_without_starting_gui() -> Result<()> {
-        let executable = std::env::var("TSHELL_APP_EXECUTABLE")?;
+        let executable = std::env::var("PIXIU_SHELL_APP_EXECUTABLE")?;
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         let port = listener.local_addr()?.port();
         let server = std::thread::spawn(move || -> Result<()> {
@@ -339,12 +339,12 @@ mod helper_tests {
             has_password: false,
         };
         let output = std::process::Command::new(executable)
-            .arg("--tshell-proxy")
-            .env("TSHELL_PROXY_CONFIG", serde_json::to_string(&proxy)?)
-            .env("TSHELL_PROXY_ID", Uuid::new_v4().to_string())
-            .env("TSHELL_PROXY_TARGET", "internal.example")
-            .env("TSHELL_PROXY_PORT", "22")
-            .env("TSHELL_ASKPASS", "1")
+            .arg("--pixiu-shell-proxy")
+            .env("PIXIU_SHELL_PROXY_CONFIG", serde_json::to_string(&proxy)?)
+            .env("PIXIU_SHELL_PROXY_ID", Uuid::new_v4().to_string())
+            .env("PIXIU_SHELL_PROXY_TARGET", "internal.example")
+            .env("PIXIU_SHELL_PROXY_PORT", "22")
+            .env("PIXIU_SHELL_ASKPASS", "1")
             .output()?;
         assert!(
             output.status.success(),

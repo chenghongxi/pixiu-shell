@@ -2,6 +2,10 @@ use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+pub(crate) const TERMINAL_THEME: &str = "pixiu-shell";
+// Stored in preferences written by the previous TShell-branded build.
+const LEGACY_TERMINAL_THEME: &str = "tshell";
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub(crate) struct Preferences {
@@ -30,7 +34,7 @@ impl Default for Preferences {
             ai_panel_width: 400,
             sidebar_hidden: false,
             theme: "dark".into(),
-            terminal_theme: "tshell".into(),
+            terminal_theme: TERMINAL_THEME.into(),
             font_size: 13,
             scrollback: 10000,
             group_by: "group".into(),
@@ -93,7 +97,7 @@ impl Preferences {
         );
         ensure!(
             [
-                "tshell",
+                TERMINAL_THEME,
                 "windterm",
                 "catppuccin",
                 "dracula",
@@ -153,6 +157,9 @@ pub(crate) fn load(db: &Connection) -> Result<Preferences> {
         )
         .optional()?
         .unwrap_or(prefs.platform_address);
+    if prefs.terminal_theme == LEGACY_TERMINAL_THEME {
+        prefs.terminal_theme = TERMINAL_THEME.into();
+    }
     prefs.validate()?;
     Ok(prefs)
 }

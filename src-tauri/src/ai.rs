@@ -60,7 +60,7 @@ impl AgentClient {
         self.json(
             Method::POST,
             &format!("api/v1/agent/runs/{run}/cancel"),
-            Some(&json!({"reason":"tshell_user_cancelled"})),
+            Some(&json!({"reason":"pixiu_shell_user_cancelled"})),
         )
         .await?;
         Ok(())
@@ -218,7 +218,7 @@ impl AiRequest {
     }
     fn body(&self, host: Uuid) -> Value {
         if matches!(self.action, Action::Chat) {
-            return json!({"content":self.prompt,"contextOptions":{"source":"tshell_chat","mode":"chat","toolPolicy":"none","learningEnabled":false,"includeProfileMemories":false}});
+            return json!({"content":self.prompt,"contextOptions":{"source":"pixiu_shell_chat","mode":"chat","toolPolicy":"none","learningEnabled":false,"includeProfileMemories":false}});
         }
 
         let execution_instruction = if matches!(self.action, Action::Diagnose) {
@@ -391,14 +391,14 @@ async fn run_chat(
     } else {
         let chat = matches!(request.action, Action::Chat);
         let metadata = if chat {
-            json!({"source":"tshell_chat"})
+            json!({"source":"pixiu_shell_chat"})
         } else {
             json!({"source":"bastion_terminal","hostId":host,"hostName":request.host_name,"hostIp":request.host_ip})
         };
         let value = client.json(Method::POST,"api/v1/agent/sessions", Some(&json!({
             "title": if chat { "Pixiu Shell Chat".to_string() } else { format!("Pixiu Shell 主机 AI · {}",request.host_name) },
             "sessionKind": if chat { "chat" } else { "bastion_terminal" },
-            "sessionKey": format!("tshell-{}:{}", if chat { "chat" } else { "terminal" }, request.terminal_id),
+            "sessionKey": format!("pixiu-shell-{}:{}", if chat { "chat" } else { "terminal" }, request.terminal_id),
             "agentName":"Pixiu Shell AI 助手", "metadataJson":metadata
         }))).await?;
         let session = Uuid::parse_str(value["sessionId"].as_str().context("AI 未返回 sessionId")?)?;
@@ -702,7 +702,7 @@ mod tests {
         )?;
         let body = request.body(Uuid::new_v4());
         assert_eq!(body["content"], "hello");
-        assert_eq!(body["contextOptions"]["source"], "tshell_chat");
+        assert_eq!(body["contextOptions"]["source"], "pixiu_shell_chat");
         for forbidden in ["must-not-send", "10.0.0.1", "sensitive context", "/private"] {
             assert!(!body.to_string().contains(forbidden));
         }

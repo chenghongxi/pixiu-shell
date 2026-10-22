@@ -6,7 +6,7 @@ description = "Pixiu Shell operations terminal"
 publish = false
 
 [lib]
-name = "tshell_lib"
+name = "pixiu_shell_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -121,7 +121,7 @@ export function SettingsPage({
       .then(setAiKeyConfigured)
       .catch((error) => setError(errorMessage(error)));
   }, []);
-  const scheme = terminalThemes[draft.terminalTheme] ?? terminalThemes.tshell;
+  const scheme = terminalThemes[draft.terminalTheme] ?? terminalThemes["pixiu-shell"];
   function update<K extends keyof Preferences>(key: K, value: Preferences[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }

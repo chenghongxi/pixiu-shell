@@ -1,4 +1,4 @@
-//! Tshell desktop boundary: platform credentials stay native; local hosts stay in SQLite.
+//! Pixiu Shell desktop boundary: platform credentials stay native; local hosts stay in SQLite.
 
 mod ai;
 mod auth_store;
@@ -6,6 +6,7 @@ mod commands;
 mod credentials;
 mod dingtalk;
 mod files;
+mod migrate;
 mod platform;
 mod preferences;
 mod proxy;
@@ -382,7 +383,13 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
             let directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&directory)?;
-            let database = directory.join("tshell.sqlite3");
+            let database = directory.join("pixiu-shell.sqlite3");
+            let known_hosts = directory.join("known_hosts");
+            // Must run before the screen lock is constructed: a configured lock
+            // whose hash is still under the legacy service can never be opened.
+            if let Err(error) = migrate::run(&directory, &database, &known_hosts) {
+                eprintln!("[pixiu-shell] 旧版本数据迁移未完成：{error}");
+            }
             let prefs = preferences::load(&storage::open(&database)?)?;
             let mut platform = Platform::new()?;
             if !prefs.platform_address.is_empty() {
@@ -396,7 +403,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 dingtalk: Arc::new(dingtalk::LoginFlow::default()),
                 revision: AtomicU64::new(0),
                 database,
-                known_hosts: directory.join("known_hosts"),
+                known_hosts,
                 platform: Mutex::new(platform),
                 sessions,
                 transfer_cancels: Mutex::new(std::collections::HashMap::new()),

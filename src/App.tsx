@@ -139,16 +139,23 @@ function sessionTitle(session: Session) {
 function paneTitle(session: Session) {
   return session.terminalTitle || sessionTitle(session);
 }
-const cacheKey = "tshell:preferences:v2";
+const cacheKey = "pixiu-shell:preferences:v2";
+// Written by the previous TShell-branded build; adopted once on first read.
+const legacyCacheKey = "tshell:preferences:v2";
 function cachedPreferences(): Preferences {
   try {
-    return {
-      ...defaultPreferences,
-      ...JSON.parse(localStorage.getItem(cacheKey) || "{}"),
-    };
+    const stored = localStorage.getItem(cacheKey);
+    if (stored) return { ...defaultPreferences, ...JSON.parse(stored) };
+    const legacy = localStorage.getItem(legacyCacheKey);
+    if (legacy) {
+      localStorage.setItem(cacheKey, legacy);
+      localStorage.removeItem(legacyCacheKey);
+      return { ...defaultPreferences, ...JSON.parse(legacy) };
+    }
   } catch {
     return defaultPreferences;
   }
+  return defaultPreferences;
 }
 export default function App() {
   const [preferences, setPreferences] = useState(cachedPreferences);
@@ -2159,7 +2166,7 @@ export default function App() {
                 xterm-256color
               </span>
               <button onClick={() => settings("appearance")}>
-                {preferences.terminalTheme === "tshell"
+                {preferences.terminalTheme === "pixiu-shell"
                   ? "Pixiu Shell"
                   : preferences.terminalTheme}{" "}
                 · {activeSession?.fontSize ?? preferences.fontSize}px
