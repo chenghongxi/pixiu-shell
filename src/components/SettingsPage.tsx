@@ -38,6 +38,7 @@ import {
   FieldDescription,
 } from "@/components/ui/field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -116,6 +117,15 @@ export function SettingsPage({
     // oxlint-disable-next-line react/set-state-in-effect
     if (createRequest) setEditor({});
   }, [createRequest]);
+  useEffect(() => {
+    // Apply while dragging so the translucent window tracks the slider; the
+    // cleanup restores the saved value if the edit is abandoned.
+    const root = document.documentElement;
+    root.style.opacity = String((draft.windowOpacity ?? 100) / 100);
+    return () => {
+      root.style.opacity = String((preferences.windowOpacity ?? 100) / 100);
+    };
+  }, [draft.windowOpacity, preferences.windowOpacity]);
   useEffect(() => {
     void command<boolean>("ai_key_configured")
       .then(setAiKeyConfigured)
@@ -360,7 +370,8 @@ export function SettingsPage({
           </form>
           </TabsContent>
           <TabsContent value="appearance">
-          <form onSubmit={save} className="shortcut-settings-form">
+          <form onSubmit={save} className="settings-form">
+            <div className="shortcut-settings-form">
             <Card className="transfer-settings">
               <CardHeader>
                 <CardTitle>快捷命令</CardTitle>
@@ -394,14 +405,9 @@ export function SettingsPage({
                 <FieldDescription>
                   输入 cl-u [远端目录] 或 cl-d 远端文件路径，回车选择本地文件。
                 </FieldDescription>
-                <Button type="submit" size="sm" disabled={saving}>
-                  保存快捷命令
-                </Button>
               </CardFooter>
             </Card>
-          </form>
-
-          <form onSubmit={save} className="settings-form">
+            </div>
             <div className="settings-section">
               <h2>
                 <Monitor />
@@ -442,6 +448,27 @@ export function SettingsPage({
                     />
                   </Field>
                 </div>
+                <Field>
+                  <FieldLabel>透明度</FieldLabel>
+                  <div className="opacity-field">
+                    <Slider
+                      aria-label="透明度"
+                      min={0}
+                      max={80}
+                      step={1}
+                      value={[100 - (draft.windowOpacity ?? 100)]}
+                      onValueChange={(value) =>
+                        update("windowOpacity", 100 - (value[0] ?? 0))
+                      }
+                    />
+                    <span className="opacity-value">
+                      {100 - (draft.windowOpacity ?? 100)}%
+                    </span>
+                  </div>
+                  <FieldDescription>
+                    拖动即时生效。0% 为完全不透明，数值越高窗口越透；整个窗口按同一比例与桌面混合，标题栏、侧边栏、终端和文字一起变淡，不会出现深浅不一。为保可读性上限 80%，保存后重启仍生效。
+                  </FieldDescription>
+                </Field>
               </FieldGroup>
             </div>
             <div className="settings-section">
@@ -581,15 +608,19 @@ export function SettingsPage({
                   </Field>
                 </div>
               </FieldGroup>
-            </div>
-            {error ? (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-            <div className="settings-save">
-              <span>全局默认字号；快捷键缩放只影响当前窗口。</span>
-              <Button disabled={saving}>保存配置</Button>
+              {error ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : null}
+              <div className="settings-save settings-save-inset">
+                <span>
+                  保存本页全部设置：快捷命令、界面外观与终端偏好；快捷键缩放只影响当前窗口。
+                </span>
+                <Button size="sm" disabled={saving}>
+                  保存
+                </Button>
+              </div>
             </div>
           </form>
           </TabsContent>
@@ -767,15 +798,17 @@ export function SettingsPage({
                   </p>
                 </div>
               </div>
-            </div>
-            {error ? (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-            <div className="settings-save">
-              <span>平台地址保存到本机，登录密码不会保存在这里。</span>
-              <Button disabled={saving}>保存配置</Button>
+              {error ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : null}
+              <div className="settings-save settings-save-inset">
+                <span>平台地址保存到本机，登录密码不会保存在这里。</span>
+                <Button size="sm" disabled={saving}>
+                  保存
+                </Button>
+              </div>
             </div>
           </form>
           </TabsContent>

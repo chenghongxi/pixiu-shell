@@ -1138,9 +1138,12 @@ export function TerminalPane({
 
   useEffect(() => {
     if (terminal.current) {
-      terminal.current.options.theme = (
+      const theme = (
         terminalThemes[preferences.terminalTheme] ?? terminalThemes["pixiu-shell"]
       ).theme;
+      // The window itself is blended once from preferences, so the theme keeps
+      // its opaque background here.
+      terminal.current.options.theme = theme;
       terminal.current.options.fontSize = preferences.fontSize;
       terminal.current.options.scrollback = preferences.scrollback;
       if (active) fit.current?.fit();
@@ -1204,7 +1207,8 @@ export function TerminalPane({
       style={
         {
           "--terminal-background": (
-            terminalThemes[preferences.terminalTheme] ?? terminalThemes["pixiu-shell"]
+            terminalThemes[preferences.terminalTheme] ??
+            terminalThemes["pixiu-shell"]
           ).theme.background,
           background: "var(--terminal-background)",
         } as CSSProperties

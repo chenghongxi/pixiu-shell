@@ -3,11 +3,15 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const TERMINAL_THEME: &str = "pixiu-shell";
+// The window is transparent; lower values blend the whole surface into the desktop.
+pub(crate) const MIN_WINDOW_OPACITY: u8 = 20;
 // Stored in preferences written by the previous TShell-branded build.
 const LEGACY_TERMINAL_THEME: &str = "tshell";
 
+// Unknown keys are ignored: a stored blob written by a newer build must not
+// keep the desktop client from starting.
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[serde(rename_all = "camelCase", default)]
 pub(crate) struct Preferences {
     pub shortcuts: std::collections::BTreeMap<String, String>,
     pub upload_command: String,
@@ -18,6 +22,8 @@ pub(crate) struct Preferences {
     pub terminal_theme: String,
     pub font_size: u16,
     pub scrollback: u32,
+    #[serde(alias = "panelOpacity")]
+    pub window_opacity: u8,
     pub group_by: String,
     pub mode: String,
     pub platform_address: String,
@@ -37,6 +43,7 @@ impl Default for Preferences {
             terminal_theme: TERMINAL_THEME.into(),
             font_size: 13,
             scrollback: 10000,
+            window_opacity: 100,
             group_by: "group".into(),
             mode: "local".into(),
             platform_address: String::new(),
@@ -111,6 +118,10 @@ impl Preferences {
         ensure!(
             (10..=24).contains(&self.font_size) && (1000..=100000).contains(&self.scrollback),
             "终端字号或历史行数超出范围"
+        );
+        ensure!(
+            (MIN_WINDOW_OPACITY..=100).contains(&self.window_opacity),
+            "界面透明度应在 20–100 之间"
         );
         ensure!(
             ["group", "tag"].contains(&self.group_by.as_str()),
@@ -194,5 +205,27 @@ mod tests {
         assert_eq!(restored.ai_panel_width, 620);
         assert_eq!(restored.platform_address, "https://ops.example.com");
         Ok(())
+    }
+    #[test]
+    fn window_opacity_stays_within_readable_range() {
+        let mut prefs = Preferences::default();
+        assert_eq!(prefs.window_opacity, 100);
+        prefs.window_opacity = MIN_WINDOW_OPACITY;
+        assert!(prefs.validate().is_ok());
+        prefs.window_opacity = MIN_WINDOW_OPACITY - 1;
+        assert!(prefs.validate().is_err());
+        prefs.window_opacity = 101;
+        assert!(prefs.validate().is_err());
+    }
+    #[test]
+    fn stored_preferences_tolerate_legacy_and_unknown_keys() {
+        let stored = r#"{
+            "theme": "dark",
+            "panelOpacity": 45,
+            "someFieldFromANewerBuild": true
+        }"#;
+        let prefs: Preferences = serde_json::from_str(stored).unwrap();
+        assert_eq!(prefs.window_opacity, 45);
+        assert_eq!(prefs.font_size, Preferences::default().font_size);
     }
 }

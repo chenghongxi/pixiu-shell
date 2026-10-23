@@ -6,34 +6,47 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --background: #f4f5f7;
+  /* Surfaces mix with the desktop; text, icons and borders stay opaque. */
+  --window-opacity: 100%;
+  --background-solid: #f4f5f7;
+  --background: color-mix(
+    in srgb,
+    var(--background-solid) var(--window-opacity),
+    transparent
+  );
   --foreground: #24272e;
-  --card: #ffffff;
+  --card-solid: #ffffff;
+  --card: color-mix(in srgb, var(--card-solid) var(--window-opacity), transparent);
   --card-foreground: #24272e;
-  --popover: #ffffff;
+  --popover-solid: #ffffff;
+  --popover: color-mix(
+    in srgb,
+    var(--popover-solid) var(--window-opacity),
+    transparent
+  );
   --popover-foreground: #24272e;
   --primary: #335ed6;
   --primary-foreground: #ffffff;
-  --secondary: #e8ebef;
+  --secondary: color-mix(in srgb, #e8ebef var(--window-opacity), transparent);
   --secondary-foreground: #586273;
-  --muted: #eceef2;
+  --muted: color-mix(in srgb, #eceef2 var(--window-opacity), transparent);
   --muted-foreground: #727b8b;
-  --accent: #eaf0fc;
+  --accent: color-mix(in srgb, #eaf0fc var(--window-opacity), transparent);
   --accent-foreground: #335ed6;
   --destructive: #c34750;
   --border: #dce4ee;
-  --input: #e9ecf1;
+  --input: color-mix(in srgb, #e9ecf1 var(--window-opacity), transparent);
   --ring: #6688dd;
   --radius: 0.4rem;
-  --rail: #e7e9ed;
-  --sidebar: #eceef2;
-  --toolbar: #e7e9ed;
-  --surface: #f0f1f4;
-  --active: #dce1e9;
-  --hover: #e3e6ec;
-  --terminal-meta: #e9ecf1;
+  --rail: color-mix(in srgb, #e7e9ed var(--window-opacity), transparent);
+  --sidebar: color-mix(in srgb, #eceef2 var(--window-opacity), transparent);
+  --toolbar: color-mix(in srgb, #e7e9ed var(--window-opacity), transparent);
+  --surface: color-mix(in srgb, #f0f1f4 var(--window-opacity), transparent);
+  --active: color-mix(in srgb, #dce1e9 var(--window-opacity), transparent);
+  --hover: color-mix(in srgb, #e3e6ec var(--window-opacity), transparent);
+  --terminal-meta: color-mix(in srgb, #e9ecf1 var(--window-opacity), transparent);
   --green: #33805a;
-  --status: #e7e9ed;
+  --status: color-mix(in srgb, #e7e9ed var(--window-opacity), transparent);
   --shadow: 0 8px 30px #15274312;
   --tone-teal: #087f83;
   --tone-amber: #a7680b;
@@ -41,33 +54,44 @@
   color-scheme: light;
 }
 :root.dark {
-  --background: var(--graphite-background, #1b1b1b);
+  --background-solid: var(--graphite-background, #1b1b1b);
+  --background: color-mix(
+    in srgb,
+    var(--background-solid) var(--window-opacity),
+    transparent
+  );
   --foreground: #d8dce5;
-  --card: #242424;
+  --card-solid: #242424;
+  --card: color-mix(in srgb, var(--card-solid) var(--window-opacity), transparent);
   --card-foreground: #d8dce5;
-  --popover: #292929;
+  --popover-solid: #292929;
+  --popover: color-mix(
+    in srgb,
+    var(--popover-solid) var(--window-opacity),
+    transparent
+  );
   --popover-foreground: #d8dce5;
   --primary: #7b9cf5;
   --primary-foreground: #101828;
-  --secondary: #303030;
+  --secondary: color-mix(in srgb, #303030 var(--window-opacity), transparent);
   --secondary-foreground: #b9bbc1;
-  --muted: #242424;
+  --muted: color-mix(in srgb, #242424 var(--window-opacity), transparent);
   --muted-foreground: #999ba3;
-  --accent: #303030;
+  --accent: color-mix(in srgb, #303030 var(--window-opacity), transparent);
   --accent-foreground: #a7bfff;
   --destructive: #ed8187;
   --border: #303030;
-  --input: #2e2e2e;
+  --input: color-mix(in srgb, #2e2e2e var(--window-opacity), transparent);
   --ring: #7897e9;
-  --rail: #181818;
-  --sidebar: #202020;
-  --toolbar: #181818;
-  --surface: #282828;
-  --active: #353535;
-  --hover: #2d2d2d;
-  --terminal-meta: #242424;
+  --rail: color-mix(in srgb, #181818 var(--window-opacity), transparent);
+  --sidebar: color-mix(in srgb, #202020 var(--window-opacity), transparent);
+  --toolbar: color-mix(in srgb, #181818 var(--window-opacity), transparent);
+  --surface: color-mix(in srgb, #282828 var(--window-opacity), transparent);
+  --active: color-mix(in srgb, #353535 var(--window-opacity), transparent);
+  --hover: color-mix(in srgb, #2d2d2d var(--window-opacity), transparent);
+  --terminal-meta: color-mix(in srgb, #242424 var(--window-opacity), transparent);
   --green: #86bd9c;
-  --status: #181818;
+  --status: color-mix(in srgb, #181818 var(--window-opacity), transparent);
   --shadow: 0 8px 30px #0004;
   --tone-teal: #58cbbb;
   --tone-amber: #e4b568;
@@ -1170,6 +1194,53 @@
   grid-template-columns: 1fr 1fr;
   gap: 26px;
 }
+.opacity-field {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.slider-root {
+  position: relative;
+  display: flex;
+  width: 100%;
+  touch-action: none;
+  align-items: center;
+  user-select: none;
+}
+.slider-track {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 20%, transparent);
+}
+.slider-range {
+  position: absolute;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.slider-thumb {
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--background);
+  box-shadow: 0 1px 4px #00000033;
+  outline: none;
+  cursor: grab;
+}
+.slider-thumb:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 55%, transparent);
+}
+.opacity-value {
+  min-width: 44px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  text-align: right;
+}
 .settings-page [data-slot="field-label"],
 .host-editor [data-slot="field-label"] {
   font-size: 11px;
@@ -1285,6 +1356,11 @@
 .settings-save > span {
   font-size: 10px;
   color: var(--muted-foreground);
+}
+.settings-save-inset {
+  margin-top: 23px;
+  padding: 15px 0 0;
+  border-top: 1px solid var(--border);
 }
 .group-settings {
   display: grid;
@@ -1654,8 +1730,10 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
+  background: transparent;
 }
 .app-shell {
+  background: transparent;
   min-height: 0;
   display: grid;
   grid-template-columns: 48px 232px minmax(0, 1fr);
@@ -4729,9 +4807,12 @@ body,
   }
 }
 
-/* xterm ships a black viewport fallback; match the selected terminal surface. */
-.terminal-pane .terminal-host .xterm-viewport {
-  background-color: var(--terminal-background);
+/* xterm paints glyphs on a transparent canvas; the pane CSS supplies the tint. */
+.terminal-pane .terminal-host .xterm,
+.terminal-pane .terminal-host .xterm-viewport,
+.terminal-pane .terminal-host .xterm-screen,
+.terminal-pane .terminal-host .xterm-screen canvas {
+  background: transparent;
 }
 
 .dark .activity-rail button[data-active="true"],
@@ -4981,13 +5062,13 @@ body,
 
 /* Borderless surfaces: neutral depth, compact gutters and readable focus states. */
 :root {
-  --panel: #ffffff;
-  --gutter: #e7e9ed;
+  --panel: color-mix(in srgb, #ffffff var(--window-opacity), transparent);
+  --gutter: color-mix(in srgb, #e7e9ed var(--window-opacity), transparent);
   --panel-shadow: 0 3px 14px #18243908;
 }
 :root.dark {
-  --panel: #242424;
-  --gutter: #181818;
+  --panel: color-mix(in srgb, #242424 var(--window-opacity), transparent);
+  --gutter: color-mix(in srgb, #181818 var(--window-opacity), transparent);
   --panel-shadow: 0 3px 14px #00000012;
 }
 [data-slot="input"],
@@ -5119,16 +5200,16 @@ body .host-search-dialog > .host-search-results {
 .sidebar-bottom.identity-compact {
   background: var(--status);
 }
-.workspace,
-.session-layout {
-  background: var(--gutter);
+.workspace {
+  background: transparent;
 }
 .session-layout {
+  background: var(--gutter);
   padding: 4px 6px 6px;
   gap: 6px;
 }
 .session-content {
-  background: var(--gutter);
+  background: transparent;
 }
 .session-view,
 .session-view[data-split="true"],
@@ -5276,7 +5357,7 @@ body .host-search-dialog > .host-search-results {
   outline-offset: -2px;
 }
 .screen-lock {
-  background: var(--background);
+  background: var(--background-solid);
 }
 
 /* GFM tables keep their columns without widening the AI dock. */

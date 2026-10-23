@@ -256,6 +256,13 @@ export default function App() {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [preferences.theme]);
+  useEffect(() => {
+    // The window is transparent, so the whole surface is blended with the
+    // desktop in one pass; every panel keeps its own opaque color.
+    document.documentElement.style.opacity = String(
+      (preferences.windowOpacity ?? 100) / 100,
+    );
+  }, [preferences.windowOpacity]);
   useEffect(
     () =>
       onPlatformAuthExpired(() => {

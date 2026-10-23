@@ -232,6 +232,7 @@ export interface Preferences {
   terminalTheme: string;
   fontSize: number;
   scrollback: number;
+  windowOpacity: number;
   groupBy: "group" | "tag";
   mode: Mode;
   platformAddress: string;
@@ -248,6 +249,7 @@ export const defaultPreferences: Preferences = {
   terminalTheme: "pixiu-shell",
   fontSize: 13,
   scrollback: 10000,
+  windowOpacity: 100,
   groupBy: "group",
   mode: "local",
   platformAddress: "",
