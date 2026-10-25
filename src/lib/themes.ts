@@ -2,6 +2,16 @@ import type { ITheme } from "@xterm/xterm";
 
 export const GRAPHITE_BACKGROUND = "#1b1b1b";
 
+// 弹层不透明度始终高于页面表面（页面 60% 时弹层约 86%），
+// 避免亮色壁纸透过弹窗，同时跟随透明度设置自适应。
+export function applyWindowOpacity(root: HTMLElement, value: number): void {
+  root.style.setProperty("--window-opacity", `${value}%`);
+  root.style.setProperty(
+    "--popup-opacity",
+    `${Math.round(100 - (100 - value) * 0.15)}%`,
+  );
+}
+
 interface Palette {
   name: string;
   description: string;

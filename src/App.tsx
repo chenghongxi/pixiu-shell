@@ -1,7 +1,7 @@
 import { ScreenLock } from "@/components/ScreenLock";
 import { effectiveShortcuts, shortcutMatches } from "@/lib/shortcuts";
 import type { LockStatus } from "@/lib/api";
-import { GRAPHITE_BACKGROUND } from "@/lib/themes";
+import { applyWindowOpacity, GRAPHITE_BACKGROUND } from "@/lib/themes";
 import { HostSearch } from "@/components/HostSearch";
 import {
   lazy,
@@ -62,6 +62,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Toaster } from "@/components/ui/sonner";
 import { ObjectStorageFolderIcon } from "@/components/ObjectStorageFolderIcon";
 import { MonitorIcon } from "@/components/MonitorIcon";
+import { HostEditor } from "@/components/HostEditor";
 import { Choice } from "@/components/Choice";
 import { PlatformLogin } from "@/components/PlatformLogin";
 import { SettingsPage } from "@/components/SettingsPage";
@@ -179,6 +180,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [localHosts, setLocalHosts] = useState<LocalHost[]>([]);
   const [localGroups, setLocalGroups] = useState<string[]>([]);
+  const [hostEditOpen, setHostEditOpen] = useState(false);
   const [platformHosts, setPlatformHosts] = useState<Host[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resourceGroupFilter, setResourceGroupFilter] = useState<string | null>(
@@ -256,10 +258,11 @@ export default function App() {
     return () => media.removeEventListener("change", apply);
   }, [preferences.theme]);
   useEffect(() => {
-    // The window is transparent, so the whole surface is blended with the
-    // desktop in one pass; every panel keeps its own opaque color.
-    document.documentElement.style.opacity = String(
-      (preferences.windowOpacity ?? 100) / 100,
+    // Surface colors blend with the desktop via --window-opacity so text,
+    // icons and borders stay opaque; dialogs follow --popup-opacity.
+    applyWindowOpacity(
+      document.documentElement,
+      preferences.windowOpacity ?? 100,
     );
   }, [preferences.windowOpacity]);
   useEffect(
@@ -1544,11 +1547,7 @@ export default function App() {
                       </p>
                     </div>
                     {mode === "local" ? (
-                      <Button
-                        size="sm"
-                        className="add-host-button"
-                        onClick={() => settings("hosts", true)}
-                      >
+                      <Button onClick={() => settings("hosts", true)}>
                         <ServerPlus data-icon="inline-start" />
                         添加本地主机
                       </Button>
@@ -1587,7 +1586,7 @@ export default function App() {
                             <dd>{selected.port}</dd>
                           </div>
                           <div>
-                            <dt>账号</dt>
+                            <dt>用户名</dt>
                             <dd>
                               {selected.local?.username || "平台授权账号"}
                             </dd>
@@ -1634,8 +1633,8 @@ export default function App() {
                           </Button>
                           {selected.local ? (
                             <Button
-                              variant="ghost"
-                              onClick={() => settings("hosts")}
+                              variant="outline"
+                              onClick={() => setHostEditOpen(true)}
                             >
                               管理配置
                             </Button>
@@ -2295,6 +2294,15 @@ export default function App() {
         ) : null}
         <Toaster theme={resolvedTheme} position="top-right" richColors />
       </div>
+      {hostEditOpen && selected?.local ? (
+        <HostEditor
+          key={selected.local.id}
+          host={selected.local}
+          groups={localGroups}
+          onClose={() => setHostEditOpen(false)}
+          onSaved={() => void refreshLocal()}
+        />
+      ) : null}
       {lockStatus.locked ? (
         <ScreenLock onUnlocked={() => void unlockWorkspace()} />
       ) : null}

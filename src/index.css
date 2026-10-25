@@ -8,6 +8,8 @@
   -webkit-font-smoothing: antialiased;
   /* Surfaces mix with the desktop; text, icons and borders stay opaque. */
   --window-opacity: 100%;
+  /* Popups keep a higher opacity floor so wallpapers do not bleed through. */
+  --popup-opacity: 100%;
   --background-solid: #f4f5f7;
   --background: color-mix(
     in srgb,
@@ -21,7 +23,7 @@
   --popover-solid: #ffffff;
   --popover: color-mix(
     in srgb,
-    var(--popover-solid) var(--window-opacity),
+    var(--popover-solid) var(--popup-opacity),
     transparent
   );
   --popover-foreground: #24272e;
@@ -36,6 +38,10 @@
   --destructive: #c34750;
   --border: #dce4ee;
   --input: color-mix(in srgb, #e9ecf1 var(--window-opacity), transparent);
+  /* 实色版本：供实色弹窗内部的控件使用，不吃窗口透明度 */
+  --input-solid: #e9ecf1;
+  --secondary-solid: #e8ebef;
+  --active-solid: #dce1e9;
   --ring: #6688dd;
   --radius: 0.4rem;
   --rail: color-mix(in srgb, #e7e9ed var(--window-opacity), transparent);
@@ -72,7 +78,7 @@
   --popover-solid: #292929;
   --popover: color-mix(
     in srgb,
-    var(--popover-solid) var(--window-opacity),
+    var(--popover-solid) var(--popup-opacity),
     transparent
   );
   --popover-foreground: #d8dce5;
@@ -87,6 +93,9 @@
   --destructive: #ed8187;
   --border: #303030;
   --input: color-mix(in srgb, #2e2e2e var(--window-opacity), transparent);
+  --input-solid: #2e2e2e;
+  --secondary-solid: #303030;
+  --active-solid: #353535;
   --ring: #7897e9;
   --rail: color-mix(in srgb, #181818 var(--window-opacity), transparent);
   --sidebar: color-mix(in srgb, #202020 var(--window-opacity), transparent);
@@ -569,32 +578,22 @@
   width: 25px;
   opacity: 0.5;
 }
-.page-title .add-host-button {
-  min-width: 124px;
-  height: 40px;
-  padding-inline: 16px;
-  border: 1px solid color-mix(in srgb, var(--primary) 72%, transparent);
-  border-radius: 7px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--primary) 22%, transparent);
-  font-size: 12px;
-  font-weight: 600;
+/* ── 按钮统一为 pixiu-ui（Element Plus）风格 ── */
+:root {
+  --btn-tint: #ffffff;
 }
-.page-title .add-host-button:hover {
-  background: color-mix(in srgb, var(--primary) 88%, white);
-  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
-  box-shadow: 0 7px 20px color-mix(in srgb, var(--primary) 30%, transparent);
-  transform: translateY(-1px);
+:root.dark {
+  --btn-tint: #000000;
 }
-.page-title .add-host-button:active {
-  transform: translateY(0);
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--primary) 20%, transparent);
+[data-slot="button"] {
+  border-radius: 4px;
 }
-.page-title .add-host-button svg {
-  width: 15px;
-  height: 15px;
-  stroke-width: 2.1;
+/* 主按钮：hover 变浅 30%、active 加深 20% */
+[data-slot="button"][data-variant="default"]:not(:disabled):hover {
+  background: color-mix(in srgb, var(--primary) 70%, var(--btn-tint));
+}
+[data-slot="button"][data-variant="default"]:not(:disabled):active {
+  background: color-mix(in srgb, var(--primary) 80%, #000);
 }
 .workspace-stats {
   display: grid;
@@ -666,6 +665,26 @@
 .host-heading-actions .host-heading-import:hover {
   background: var(--active);
 }
+/* 深色遮罩压暗到 25%：页面与弹窗亮度差收窄，窗口透明度调低时弹窗不再显得突兀地亮 */
+.dark [data-slot="dialog-overlay"] {
+  background: rgb(0 0 0 / 25%);
+}
+/* 模态弹窗全实色：亮色壁纸前不再透光发灰；层次感靠阴影与遮罩 */
+[data-slot="dialog-content"] {
+  background: var(--background-solid);
+}
+/* 弹窗内部控件改用实色底：半透明底叠在实色面板上会发虚 */
+[data-slot="dialog-content"] [data-slot="input"],
+[data-slot="dialog-content"] [data-slot="textarea"],
+[data-slot="dialog-content"] [data-slot="select-trigger"] {
+  background: var(--input-solid);
+}
+[data-slot="dialog-content"] [data-slot="button"][data-variant="outline"] {
+  background: var(--secondary-solid);
+}
+[data-slot="dialog-content"] [data-slot="button"][data-variant="outline"]:hover {
+  background: var(--active-solid);
+}
 .batch-import-dialog[data-slot="dialog-content"] {
   width: min(500px, calc(100vw - 32px));
   max-width: none;
@@ -673,9 +692,6 @@
   padding: 20px;
   background: #f7f7f8;
   box-shadow: 0 24px 64px #00000080;
-}
-.dark .batch-import-dialog[data-slot="dialog-content"] {
-  background: #1d1d1d;
 }
 .batch-import-dialog [data-slot="dialog-title"] {
   font-size: 15px;
@@ -5282,7 +5298,6 @@ body,
 [data-slot="select-separator"] {
   background: transparent;
 }
-[data-slot="dialog-content"],
 [data-slot="select-content"] {
   background: var(--popover);
   box-shadow: var(--shadow);

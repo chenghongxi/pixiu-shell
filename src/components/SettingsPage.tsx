@@ -52,7 +52,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { HostEditor } from "./HostEditor";
 import { Choice } from "./Choice";
-import { terminalThemes } from "@/lib/themes";
+import { applyWindowOpacity, terminalThemes } from "@/lib/themes";
 import {
   command,
   errorMessage,
@@ -138,11 +138,12 @@ export function SettingsPage({
   useEffect(() => {
     // Apply while dragging so the translucent window tracks the slider; the
     // cleanup restores the saved value if the edit is abandoned.
-    const root = document.documentElement;
-    root.style.opacity = String((draft.windowOpacity ?? 100) / 100);
-    return () => {
-      root.style.opacity = String((preferences.windowOpacity ?? 100) / 100);
-    };
+    applyWindowOpacity(document.documentElement, draft.windowOpacity ?? 100);
+    return () =>
+      applyWindowOpacity(
+        document.documentElement,
+        preferences.windowOpacity ?? 100,
+      );
   }, [draft.windowOpacity, preferences.windowOpacity]);
   useEffect(() => {
     void command<boolean>("ai_key_configured")
