@@ -359,7 +359,7 @@
 }
 .host-row small {
   display: block;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.5;
   color: var(--muted-foreground);
   font-family: Menlo, Consolas, monospace;
@@ -902,7 +902,7 @@
 }
 .mono {
   font-family: Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
 }
 .connection-detail {
   border: 0;
