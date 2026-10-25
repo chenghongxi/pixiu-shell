@@ -14,7 +14,6 @@ import {
   useState,
 } from "react";
 import {
-  Building2,
   LockKeyhole,
   FileCode2,
   ListChecks,
@@ -27,9 +26,7 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
-  HardDrive,
   LoaderCircle,
-  LogOut,
   Moon,
   Minus,
   Plus,
@@ -52,7 +49,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
@@ -551,30 +547,6 @@ export default function App() {
     setView("settings");
     if (add) setCreateRequest((value) => value + 1);
   }
-  async function switchMode(next: Mode) {
-    if (next === mode) return;
-    requestId.current++;
-    connectId.current++;
-    setConnecting(false);
-    setConnection(null);
-    setSelectedId(null);
-    setResourceGroupFilter(null);
-    setResourcePage(1);
-    setExpandedGroups(new Set());
-    setKeyword("");
-    setError("");
-    setFileTarget(null);
-    setMode(next);
-    setView("workspace");
-    setActive("home");
-    try {
-      await patchPreferences({ mode: next });
-      if (next === "platform" && !user && desktop)
-        setUser(await command<User | null>("platform_restore"));
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
-  }
   async function login() {
     if (!preferences.platformAddress) {
       settings("platform");
@@ -928,28 +900,6 @@ export default function App() {
       if (generation === connectId.current) setConnecting(false);
     }
   }
-  async function logout() {
-    requestId.current++;
-    connectId.current++;
-    setUser(null);
-    setPlatformHosts([]);
-    dropLayoutSessions(
-      sessions
-        .filter((session) => session.target.mode === "platform")
-        .map((session) => session.id),
-    );
-    setSessions((current) =>
-      current.filter((session) => session.target.mode === "local"),
-    );
-    setFileTarget(null);
-    setActive("home");
-    setConnection(null);
-    try {
-      await command("logout");
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
-  }
   const hosts = mode === "local" ? localHosts.map(fromLocal) : platformHosts;
   const selected = hosts.find((host) => host.id === selectedId);
   const activeSession = sessions.find((session) => session.id === active);
@@ -1104,41 +1054,6 @@ export default function App() {
           <div className="window-leading">
             <div className="traffic-light-space" aria-hidden="true" />
             <strong>Pixiu Shell</strong>
-          </div>
-          <div className="toolbar-tabs" hidden={view !== "workspace"}>
-            <div className="session-bar" ref={sessionBarRef}>
-              {sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className={cn(
-                    "session-tab",
-                    active === session.id && "active",
-                  )}
-                  data-session-tab-id={session.id}
-                  data-tauri-drag-region="false"
-                  data-drag-source={drag?.sourceId === session.id}
-                >
-                  <button
-                    className="session-tab-drag"
-                    title="拖到终端左、右、上、下边缘分屏；悬停其他标签可切换目标"
-                    {...bindPaneDrag(session.id)}
-                    onClick={() => activateSession(session)}
-                    onDoubleClick={() => toggleMaximizedPane(session.id)}
-                  >
-                    <TerminalSquare />
-                    <span>{sessionTitle(session)}</span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`关闭 ${sessionTitle(session)}`}
-                    onClick={() => closeSession(session.id)}
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ))}
-            </div>
           </div>
           <div className="window-drag-space" />
           <div className="window-actions">
@@ -1371,26 +1286,6 @@ export default function App() {
           id="host-sidebar"
           hidden={preferences.sidebarHidden || view !== "workspace"}
         >
-          <div className="sidebar-title">
-            <span>主机资源</span>
-          </div>
-          <div className="mode-switch">
-            <Tabs
-              value={mode}
-              onValueChange={(value) => void switchMode(value as Mode)}
-            >
-              <TabsList className="w-full">
-                <TabsTrigger value="local">
-                  <HardDrive />
-                  离线
-                </TabsTrigger>
-                <TabsTrigger value="platform">
-                  <Building2 />
-                  平台
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
           <div className="host-search">
             <Search />
             <SearchInput
@@ -1403,7 +1298,6 @@ export default function App() {
                 setResourcePage(1);
               }}
             />
-            <kbd>⌘K</kbd>
           </div>
           <div className="sidebar-heading">
             <span>
@@ -1527,42 +1421,44 @@ export default function App() {
               </div>
             ) : null}
           </div>
-          <div
-            className="sidebar-bottom identity-compact"
-            title={
-              mode === "local"
-                ? "本地工作空间 · 无需登录"
-                : [user?.displayName || user?.username, user?.companyName]
-                    .filter(Boolean)
-                    .join(" · ")
-            }
-          >
-            {mode === "local" ? <HardDrive /> : <ShieldCheck />}
-            <div className="identity-line">
-              <strong>
-                {mode === "local"
-                  ? "无需登录 · SQLite"
-                  : user?.displayName || user?.username || "平台未登录"}
-              </strong>
-              {mode === "platform" && user?.companyName ? (
-                <small>· {user.companyName}</small>
-              ) : null}
-            </div>
-            {mode === "platform" ? (
-              user ? (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="退出平台"
-                  onClick={() => void logout()}
-                >
-                  <LogOut />
-                </Button>
-              ) : null
-            ) : null}
-          </div>
         </aside>
         <main className="workspace">
+          <div className="session-tabrow" hidden={view !== "workspace"}>
+            <div className="session-bar" ref={sessionBarRef}>
+              {sessions.map((session) => (
+                <div
+                  key={session.id}
+                  className={cn(
+                    "session-tab",
+                    active === session.id && "active",
+                  )}
+                  data-session-tab-id={session.id}
+                  data-tauri-drag-region="false"
+                  data-drag-source={drag?.sourceId === session.id}
+                >
+                  <button
+                    className="session-tab-drag"
+                    title="拖到终端左、右、上、下边缘分屏；悬停其他标签可切换目标"
+                    {...bindPaneDrag(session.id)}
+                    onClick={() => activateSession(session)}
+                    onDoubleClick={() => toggleMaximizedPane(session.id)}
+                  >
+                    <TerminalSquare />
+                    <span>{sessionTitle(session)}</span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`关闭 ${sessionTitle(session)}`}
+                    onClick={() => closeSession(session.id)}
+                  >
+                    <X />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="session-tabrow-space" data-tauri-drag-region />
+          </div>
           {!desktop ? (
             <div className="preview-notice">
               浏览器预览 · 配色与布局可体验，SSH、SFTP
@@ -2158,14 +2054,6 @@ export default function App() {
             ) : null}
           </div>
           <footer className="status-bar">
-            <span>
-              <i />
-              {mode === "local"
-                ? "离线模式 · 无需登录"
-                : user
-                  ? user.username
-                  : "等待平台登录"}
-            </span>
             <span>
               {sessions.length} 个会话<span>UTF-8</span>
               <span title="终端类型">

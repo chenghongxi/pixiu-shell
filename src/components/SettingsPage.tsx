@@ -24,6 +24,7 @@ import {
   Server,
   ServerPlus,
   Building2,
+  Download,
   Sparkles,
   Trash2,
   Pencil,
@@ -58,6 +59,21 @@ import {
   type LocalHost,
   type Preferences,
 } from "@/lib/api";
+
+const yamlImportTemplate = `hosts:
+  - Host: web-prod
+    HostName: 10.20.30.40
+    User: deploy
+    Port: 22
+    Password: ""
+    Group: 生产环境
+
+  - Host: db-staging
+    HostName: db-staging.example.com
+    User: ops
+    Port: 2222
+    Password: ""
+    Group: 预发布`;
 
 export function SettingsPage({
   preferences,
@@ -98,6 +114,8 @@ export function SettingsPage({
   const [apiKey, setApiKey] = useState("");
   const [aiKeyConfigured, setAiKeyConfigured] = useState(false);
   const [editor, setEditor] = useState<{ host?: LocalHost } | null>(null);
+  const [batchImportOpen, setBatchImportOpen] = useState(false);
+  const [batchImportFormat, setBatchImportFormat] = useState<"excel" | "yaml">("excel");
   const [groupEditor, setGroupEditor] = useState<{
     previous?: string;
     name: string;
@@ -223,18 +241,27 @@ export function SettingsPage({
       setSaving(false);
     }
   }
-  async function importOpenSshConfig() {
+  async function importBatchHosts() {
+    setBatchImportOpen(false);
     setSaving(true);
     try {
-      const result = await command<{ cancelled: boolean; count: number }>("openssh_config_import");
+      const result = await command<{ cancelled: boolean; count: number }>("batch_hosts_import");
       if (!result.cancelled) {
         await refresh();
-        toast.success(result.count ? `已导入 ${result.count} 台 OpenSSH 主机` : "没有可导入的 OpenSSH 主机");
+        toast.success(result.count ? `已导入 ${result.count} 台主机` : "没有可导入的主机");
       }
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
       setSaving(false);
+    }
+  }
+  async function saveBatchImportTemplate(format: "excel" | "yaml") {
+    try {
+      const result = await command<{ cancelled: boolean }>("batch_hosts_template_save", { format });
+      if (!result.cancelled) toast.success(`${format === "excel" ? "Excel" : "YAML"} 模板已保存`);
+    } catch (error) {
+      toast.error(errorMessage(error));
     }
   }
   return (
@@ -452,6 +479,7 @@ export function SettingsPage({
                   <FieldLabel>透明度</FieldLabel>
                   <div className="opacity-field">
                     <Slider
+                      className="opacity-slider"
                       aria-label="透明度"
                       min={0}
                       max={80}
@@ -631,14 +659,22 @@ export function SettingsPage({
                 <h2>本地主机</h2>
                 <p>管理独立主机配置，平台主机仍由运维平台授权。</p>
               </div>
-              <Button onClick={() => setEditor({})}>
-                <ServerPlus data-icon="inline-start" />
-                添加本地主机
-              </Button>
-              <Button variant="outline" disabled={saving} onClick={() => void importOpenSshConfig()}>
-                <Import data-icon="inline-start" />
-                导入 OpenSSH
-              </Button>
+              <div className="host-heading-actions">
+                <Button
+                  className="host-heading-import"
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => setBatchImportOpen(true)}
+                >
+                  <Import data-icon="inline-start" />
+                  批量导入
+                </Button>
+                <Button size="sm" onClick={() => setEditor({})}>
+                  <ServerPlus data-icon="inline-start" />
+                  添加主机
+                </Button>
+              </div>
             </div>
             <div className="data-table-wrap">
               <table className="data-table">
@@ -822,6 +858,69 @@ export function SettingsPage({
           onSaved={() => void refresh()}
         />
       ) : null}
+      <Dialog
+        open={batchImportOpen}
+        onOpenChange={(open) => {
+          if (!saving) setBatchImportOpen(open);
+        }}
+      >
+        <DialogContent className="batch-import-dialog" showCloseButton={!saving}>
+          <DialogHeader>
+            <DialogTitle>批量导入主机</DialogTitle>
+            <DialogDescription>
+              支持 Excel 与 YAML 文件。密码仅写入系统凭据库，不会保存到主机配置。
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs
+            value={batchImportFormat}
+            onValueChange={(value) => setBatchImportFormat(value as "excel" | "yaml")}
+            className="batch-import-formats"
+          >
+            <TabsList>
+              <TabsTrigger value="excel">Excel</TabsTrigger>
+              <TabsTrigger value="yaml">YAML</TabsTrigger>
+            </TabsList>
+            <TabsContent value="excel">
+              <div className="batch-import-details">
+                <p>使用首个工作表，第一行必须为以下字段名：</p>
+                <div className="batch-import-columns">
+                  {['Host', 'HostName', 'User', 'Port', 'Password', 'Group'].map((name) => (
+                    <code key={name}>{name}</code>
+                  ))}
+                </div>
+                <p>Host、HostName、User 为必填项；Port 留空时默认使用 22。</p>
+              </div>
+            </TabsContent>
+            <TabsContent value="yaml">
+              <div className="batch-import-details">
+                <p>使用 <code>hosts</code> 列表，每个条目使用同名字段：</p>
+                <pre>{yamlImportTemplate}</pre>
+              </div>
+            </TabsContent>
+          </Tabs>
+          <DialogFooter className="batch-import-footer">
+            <Button
+              className="batch-import-template-action"
+              variant="outline"
+              size="sm"
+              disabled={saving}
+              onClick={() => void saveBatchImportTemplate(batchImportFormat)}
+            >
+              <Download data-icon="inline-start" />
+              {batchImportFormat === "excel" ? "下载 Excel 模板" : "下载 YAML 模板"}
+            </Button>
+            <Button
+              className="batch-import-select-action"
+              size="sm"
+              disabled={saving}
+              onClick={() => void importBatchHosts()}
+            >
+              <Import data-icon="inline-start" />
+              选择导入文件
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!groupEditor}
         onOpenChange={(open) => {

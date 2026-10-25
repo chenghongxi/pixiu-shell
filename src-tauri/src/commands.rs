@@ -1,11 +1,16 @@
 use crate::{AppState, CommandResult, Target, error, files, platform, preferences, storage};
 use anyhow::{Context, Result, ensure};
+use calamine::{Reader, open_workbook_auto};
+use rust_xlsxwriter::{Format, Workbook};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
 use tauri::{Manager, State, ipc::Channel};
+use uuid::Uuid;
+use zeroize::Zeroizing;
 
 #[tauri::command]
 pub(crate) async fn preferences_load(
@@ -135,6 +140,228 @@ struct OpenSshHost {
     user: String,
     port: Option<u16>,
     identity_file: String,
+}
+
+#[derive(Default, Deserialize)]
+struct BatchImportDocument {
+    #[serde(default, alias = "Hosts")]
+    hosts: Vec<BatchImportHost>,
+}
+
+#[derive(Default, Deserialize)]
+struct BatchImportHost {
+    #[serde(default, rename = "Host", alias = "host")]
+    host: String,
+    #[serde(default, rename = "HostName", alias = "hostName", alias = "hostname")]
+    hostname: String,
+    #[serde(default, rename = "User", alias = "user")]
+    user: String,
+    #[serde(default, rename = "Port", alias = "port")]
+    port: Option<serde_yaml::Value>,
+    #[serde(default, rename = "Password", alias = "password")]
+    password: String,
+    #[serde(default, rename = "Group", alias = "group")]
+    group: String,
+}
+
+impl BatchImportHost {
+    fn port(&self, row: usize) -> Result<u16> {
+        let Some(value) = &self.port else {
+            return Ok(22);
+        };
+        let value = match value {
+            serde_yaml::Value::Number(value) => value.to_string(),
+            serde_yaml::Value::String(value) => value.trim().to_string(),
+            _ => anyhow::bail!("第 {row} 条记录的 Port 必须是 1 到 65535 的整数"),
+        };
+        value
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port > 0)
+            .context(format!("第 {row} 条记录的 Port 必须是 1 到 65535 的整数"))
+    }
+
+    fn local_host(&self, row: usize) -> Result<storage::LocalHost> {
+        let host = storage::LocalHost {
+            id: Some(Uuid::new_v4()),
+            name: self.host.trim().into(),
+            address: self.hostname.trim().into(),
+            port: self.port(row)?,
+            username: self.user.trim().into(),
+            group: self.group.trim().into(),
+            identity_file: String::new(),
+            note: "从批量导入创建".into(),
+            tags: vec!["批量导入".into()],
+            tunnels: vec![],
+            has_password: !self.password.is_empty(),
+            proxy: None,
+        };
+        host.validate()
+            .with_context(|| format!("第 {row} 条记录无效"))?;
+        Ok(host)
+    }
+}
+
+fn excel_value(value: Option<&calamine::Data>) -> String {
+    value
+        .map(ToString::to_string)
+        .unwrap_or_default()
+        .trim()
+        .into()
+}
+
+fn import_excel(path: &Path) -> Result<Vec<BatchImportHost>> {
+    let mut workbook = open_workbook_auto(path).context("无法读取 Excel 文件")?;
+    let range = workbook
+        .worksheet_range_at(0)
+        .context("Excel 中没有工作表")??;
+    let mut columns = HashMap::new();
+    let Some(header) = range.rows().next() else {
+        anyhow::bail!("Excel 模板缺少表头");
+    };
+    for (index, value) in header.iter().enumerate() {
+        columns.insert(excel_value(Some(value)).to_ascii_lowercase(), index);
+    }
+    for required in ["host", "hostname", "user", "port", "password", "group"] {
+        ensure!(columns.contains_key(required), "Excel 缺少 {required} 列");
+    }
+    let value = |row: &[calamine::Data], key: &str| {
+        excel_value(row.get(*columns.get(key).expect("validated column")))
+    };
+    let mut hosts = Vec::new();
+    for row in range.rows().skip(1) {
+        if row.iter().all(|cell| excel_value(Some(cell)).is_empty()) {
+            continue;
+        }
+        let port = value(row, "port");
+        hosts.push(BatchImportHost {
+            host: value(row, "host"),
+            hostname: value(row, "hostname"),
+            user: value(row, "user"),
+            port: (!port.is_empty()).then_some(serde_yaml::Value::String(port)),
+            password: value(row, "password"),
+            group: value(row, "group"),
+        });
+    }
+    Ok(hosts)
+}
+
+fn import_batch_file(path: &Path) -> Result<Vec<BatchImportHost>> {
+    let metadata = std::fs::metadata(path).context("无法读取导入文件")?;
+    ensure!(
+        metadata.len() <= 10 * 1024 * 1024,
+        "导入文件不能超过 10 MiB"
+    );
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "xlsx" | "xls" => import_excel(path),
+        "yaml" | "yml" => {
+            let source = std::fs::read_to_string(path).context("无法读取 YAML 文件")?;
+            Ok(serde_yaml::from_str::<BatchImportDocument>(&source)
+                .context("YAML 格式无效")?
+                .hosts)
+        }
+        _ => anyhow::bail!("仅支持 .xlsx、.xls、.yaml 或 .yml 文件"),
+    }
+}
+
+fn save_batch_hosts(path: &Path, mut hosts: Vec<BatchImportHost>) -> Result<usize> {
+    ensure!(!hosts.is_empty(), "导入文件中没有主机记录");
+    ensure!(hosts.len() <= 1_000, "一次最多导入 1000 台主机");
+    let prepared: Vec<_> = hosts
+        .iter()
+        .enumerate()
+        .map(|(index, host)| host.local_host(index + 2))
+        .collect::<Result<_>>()?;
+    let db = storage::open(path)?;
+    let mut saved = Vec::new();
+    let result = (|| -> Result<()> {
+        for (host, input) in prepared.into_iter().zip(hosts.iter_mut()) {
+            let id = host.id.context("导入主机缺少 ID")?;
+            let password = Zeroizing::new(std::mem::take(&mut input.password));
+            if !password.is_empty() {
+                crate::credentials::write(id, &password)?;
+            }
+            if let Err(error) = storage::save(&db, host) {
+                if !password.is_empty() {
+                    let _ = crate::credentials::delete(id);
+                }
+                return Err(error);
+            }
+            saved.push(id);
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        for id in saved {
+            let _ = crate::credentials::delete(id);
+            let _ = db.execute("DELETE FROM local_hosts WHERE id=?1", [id.to_string()]);
+        }
+        return Err(error);
+    }
+    Ok(hosts.len())
+}
+
+fn write_batch_import_template(path: &Path) -> Result<()> {
+    let mut workbook = Workbook::new();
+    let worksheet = workbook.add_worksheet();
+    worksheet.set_name("Hosts")?;
+    let header = Format::new().set_bold();
+    for (column, name) in ["Host", "HostName", "User", "Port", "Password", "Group"]
+        .iter()
+        .enumerate()
+    {
+        worksheet.write_string_with_format(0, column as u16, *name, &header)?;
+    }
+    for (row, values) in [
+        ["web-prod", "10.20.30.40", "deploy", "22", "", "生产环境"],
+        [
+            "db-staging",
+            "db-staging.example.com",
+            "ops",
+            "2222",
+            "",
+            "预发布",
+        ],
+    ]
+    .iter()
+    .enumerate()
+    {
+        for (column, value) in values.iter().enumerate() {
+            worksheet.write_string((row + 1) as u32, column as u16, *value)?;
+        }
+    }
+    for column in 0..6 {
+        worksheet.set_column_width(column, 22)?;
+    }
+    workbook.save(path).context("无法生成 Excel 模板")
+}
+
+fn write_yaml_batch_import_template(path: &Path) -> Result<()> {
+    std::fs::write(
+        path,
+        r#"hosts:
+  - Host: web-prod
+    HostName: 10.20.30.40
+    User: deploy
+    Port: 22
+    Password: ""
+    Group: 生产环境
+
+  - Host: db-staging
+    HostName: db-staging.example.com
+    User: ops
+    Port: 2222
+    Password: ""
+    Group: 预发布
+"#,
+    )
+    .context("无法写入 YAML 模板")
 }
 
 fn ssh_value(value: &str) -> String {
@@ -273,6 +500,60 @@ pub(crate) async fn openssh_config_import(state: State<'_, AppState>) -> Command
         .map_err(error)?
         .map_err(error)?;
     Ok(json!({"cancelled": false, "count": count}))
+}
+
+#[tauri::command]
+pub(crate) async fn batch_hosts_import(state: State<'_, AppState>) -> CommandResult<Value> {
+    let picked = tokio::task::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("批量导入主机")
+            .add_filter("主机导入文件", &["xlsx", "xls", "yaml", "yml"])
+            .pick_file()
+    })
+    .await
+    .map_err(error)?;
+    let Some(path) = picked else {
+        return Ok(json!({"cancelled": true, "count": 0}));
+    };
+    let database = state.database.to_path_buf();
+    let count = tokio::task::spawn_blocking(move || {
+        let hosts = import_batch_file(&path)?;
+        save_batch_hosts(&database, hosts)
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)?;
+    Ok(json!({"cancelled": false, "count": count}))
+}
+
+#[tauri::command]
+pub(crate) async fn batch_hosts_template_save(format: String) -> CommandResult<Value> {
+    let (file_name, filter_name, extension) = match format.as_str() {
+        "excel" => ("pixiu-shell-hosts-template.xlsx", "Excel 工作簿", "xlsx"),
+        "yaml" => ("pixiu-shell-hosts-template.yaml", "YAML 文件", "yaml"),
+        _ => return Err("不支持的模板格式".into()),
+    };
+    let saved = tokio::task::spawn_blocking(move || {
+        rfd::FileDialog::new()
+            .set_title("保存主机导入模板")
+            .set_file_name(file_name)
+            .add_filter(filter_name, &[extension])
+            .save_file()
+    })
+    .await
+    .map_err(error)?;
+    let Some(path) = saved else {
+        return Ok(json!({"cancelled": true}));
+    };
+    tokio::task::spawn_blocking(move || match format.as_str() {
+        "excel" => write_batch_import_template(&path),
+        "yaml" => write_yaml_batch_import_template(&path),
+        _ => unreachable!("template format is validated before saving"),
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)?;
+    Ok(json!({"cancelled": false}))
 }
 
 #[tauri::command]
@@ -763,6 +1044,70 @@ pub(crate) async fn platform_restore(state: State<'_, AppState>) -> CommandResul
         .restore_identity()
         .await
         .map_err(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_yaml_batch_import_records() -> Result<()> {
+        let document: BatchImportDocument = serde_yaml::from_str(
+            r#"hosts:
+  - Host: app-prod
+    HostName: 10.20.30.40
+    User: deploy
+    Port: 2222
+    Password: secret
+    Group: production"#,
+        )?;
+        assert_eq!(document.hosts.len(), 1);
+        let host = document.hosts[0].local_host(2)?;
+        assert_eq!(host.name, "app-prod");
+        assert_eq!(host.address, "10.20.30.40");
+        assert_eq!(host.port, 2222);
+        assert_eq!(host.group, "production");
+        assert!(host.has_password);
+        Ok(())
+    }
+
+    #[test]
+    fn defaults_batch_import_port_to_ssh_default() -> Result<()> {
+        let host = BatchImportHost {
+            host: "app-dev".into(),
+            hostname: "app-dev.example.com".into(),
+            user: "ops".into(),
+            ..Default::default()
+        }
+        .local_host(2)?;
+        assert_eq!(host.port, 22);
+        assert!(!host.has_password);
+        Ok(())
+    }
+
+    #[test]
+    fn writes_an_importable_excel_template() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("hosts.xlsx");
+        write_batch_import_template(&path)?;
+        let hosts = import_excel(&path)?;
+        assert_eq!(hosts.len(), 2);
+        assert_eq!(hosts[0].host, "web-prod");
+        assert_eq!(hosts[1].group, "预发布");
+        Ok(())
+    }
+
+    #[test]
+    fn writes_an_importable_yaml_template() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("hosts.yaml");
+        write_yaml_batch_import_template(&path)?;
+        let hosts = import_batch_file(&path)?;
+        assert_eq!(hosts.len(), 2);
+        assert_eq!(hosts[0].host, "web-prod");
+        assert_eq!(hosts[1].group, "预发布");
+        Ok(())
+    }
 }
 
 #[tauri::command]
