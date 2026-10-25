@@ -61,6 +61,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Toaster } from "@/components/ui/sonner";
 import { ObjectStorageFolderIcon } from "@/components/ObjectStorageFolderIcon";
+import { MonitorIcon } from "@/components/MonitorIcon";
 import { Choice } from "@/components/Choice";
 import { PlatformLogin } from "@/components/PlatformLogin";
 import { SettingsPage } from "@/components/SettingsPage";
@@ -114,6 +115,7 @@ import { usePaneDrag, type PaneDrop } from "@/hooks/use-pane-drag";
 import { HostTree } from "@/components/HostTree";
 import { HostOsIcon } from "@/components/HostOsIcon";
 import { HostDetails } from "@/components/HostDetails";
+import { HostMonitor } from "@/components/HostMonitor";
 import { resource, platformGroupPaths, type HostNode } from "@/lib/api";
 import { BatchCommand } from "@/components/BatchCommand";
 const ScriptManager = lazy(() =>
@@ -212,6 +214,7 @@ export default function App() {
   const [scriptsVisited, setScriptsVisited] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [monitorOpen, setMonitorOpen] = useState(false);
   const terminalHandles = useRef(new Map<string, TerminalHandle>());
   const [fileTarget, setFileTarget] = useState<{
     target: Target;
@@ -633,7 +636,10 @@ export default function App() {
         sessions[index + 1] ??
         sessions[index - 1];
       if (survivor) activateSession(survivor);
-      else setActive("home");
+      else {
+        setActive("home");
+        setMonitorOpen(false);
+      }
     }
   }
   function updateTerminalTitle(id: string, title: string | null) {
@@ -1131,19 +1137,36 @@ export default function App() {
                   <ObjectStorageFolderIcon />
                 </Button>
                 {activeSession?.target.mode !== "shell" ? (
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="主机 AI"
-                    title="主机 AI 助手"
-                    data-active={aiOpen}
-                    onClick={() => {
-                      setAiOpen((value) => !value);
-                      setFileTarget(null);
-                    }}
-                  >
-                    <Sparkles />
-                  </Button>
+                  <>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="主机 AI"
+                      title="主机 AI 助手"
+                      data-active={aiOpen}
+                      onClick={() => {
+                        setAiOpen((value) => !value);
+                        setMonitorOpen(false);
+                        setFileTarget(null);
+                      }}
+                    >
+                      <Sparkles className="size-3.5" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="主机监控"
+                      title="主机监控"
+                      data-active={monitorOpen}
+                      onClick={() => {
+                        setMonitorOpen((value) => !value);
+                        setAiOpen(false);
+                        setFileTarget(null);
+                      }}
+                    >
+                      <MonitorIcon className="size-3.5" />
+                    </Button>
+                  </>
                 ) : null}
               </>
             ) : null}
@@ -2026,6 +2049,29 @@ export default function App() {
                       />
                     ))}
                 </Suspense>
+              </AiDock>
+              <AiDock
+                width={preferences.aiPanelWidth ?? 400}
+                onWidthChange={(aiPanelWidth) =>
+                  void patchPreferences({ aiPanelWidth }).catch((error) =>
+                    toast.error(errorMessage(error)),
+                  )
+                }
+                hidden={
+                  !monitorOpen ||
+                  view !== "workspace" ||
+                  activeSession?.target.mode === "shell" ||
+                  !activeSession
+                }
+              >
+                {activeSession && activeSession.target.mode !== "shell" ? (
+                  <HostMonitor
+                    key={activeSession.id}
+                    host={activeSession.host}
+                    visible={monitorOpen && view === "workspace"}
+                    onClose={() => setMonitorOpen(false)}
+                  />
+                ) : null}
               </AiDock>
               {fileTarget ? (
                 <FileManager

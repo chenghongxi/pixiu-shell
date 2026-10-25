@@ -36,6 +36,16 @@ pub(crate) fn connect_with_credentials(
     supplied_password: Option<&str>,
     proxy_password: Option<&str>,
 ) -> Result<Sftp> {
+    connect_session(host, known_hosts, supplied_password, proxy_password)?.sftp()
+        .context("服务器不支持 SFTP")
+}
+/// Reused by monitoring probes, which run remote commands instead of transferring files.
+pub(crate) fn connect_session(
+    host: &LocalHost,
+    known_hosts: &Path,
+    supplied_password: Option<&str>,
+    proxy_password: Option<&str>,
+) -> Result<Session> {
     host.validate()?;
     let socket = crate::proxy::connect_with_password(
         &host.address,
@@ -68,7 +78,7 @@ pub(crate) fn connect_with_credentials(
             );
             ensure!(
                 rfd::MessageDialog::new()
-                    .set_title("Pixiu Shell · 验证 SFTP 主机指纹")
+                    .set_title("Pixiu Shell · 验证 SSH 主机指纹")
                     .set_description(message)
                     .set_buttons(rfd::MessageButtons::YesNo)
                     .show()
@@ -100,18 +110,18 @@ pub(crate) fn connect_with_credentials(
                 Path::new(&host.identity_file),
                 password,
             )
-            .context("SFTP 私钥认证失败")?;
+            .context("SSH 私钥认证失败")?;
     } else if let Some(password) = password {
         session
             .userauth_password(&host.username, password)
-            .context("SFTP 密码认证失败")?;
+            .context("SSH 密码认证失败")?;
     } else {
         session
             .userauth_agent(&host.username)
-            .context("SFTP 需要保存主机密码、配置私钥或解锁 SSH Agent，请在主机配置中设置")?;
+            .context("SSH 需要保存主机密码、配置私钥或解锁 SSH Agent，请在主机配置中设置")?;
     }
-    ensure!(session.authenticated(), "SFTP 认证失败");
-    session.sftp().context("服务器不支持 SFTP")
+    ensure!(session.authenticated(), "SSH 认证失败");
+    Ok(session)
 }
 pub(crate) fn list(sftp: &Sftp, path: &str) -> Result<Vec<FileItem>> {
     validate_path(path)?;

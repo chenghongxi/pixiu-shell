@@ -7,6 +7,7 @@ mod credentials;
 mod dingtalk;
 mod files;
 mod migrate;
+mod monitor;
 mod platform;
 mod preferences;
 mod proxy;
@@ -41,6 +42,8 @@ struct AppState {
     platform: Mutex<Platform>,
     sessions: Arc<Sessions>,
     transfer_cancels: Mutex<std::collections::HashMap<Uuid, Arc<AtomicBool>>>,
+    // Monitoring polls a host every few seconds, so it keeps the SSH session alive.
+    monitor_sessions: Mutex<std::collections::HashMap<Uuid, ssh2::Session>>,
 }
 
 type CommandResult<T> = std::result::Result<T, String>;
@@ -407,6 +410,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 platform: Mutex::new(platform),
                 sessions,
                 transfer_cancels: Mutex::new(std::collections::HashMap::new()),
+                monitor_sessions: Mutex::new(std::collections::HashMap::new()),
             });
             Ok(())
         })
@@ -449,6 +453,8 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 commands::file_upload_progress,
                 commands::file_download_progress,
                 commands::file_delete,
+                commands::host_metrics_probe,
+                commands::host_metrics_stop,
                 local_hosts,
                 save_host,
                 delete_host,

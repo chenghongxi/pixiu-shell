@@ -1,4 +1,6 @@
-use crate::{AppState, CommandResult, Target, error, files, platform, preferences, storage};
+use crate::{
+    AppState, CommandResult, Target, error, files, monitor, platform, preferences, storage,
+};
 use anyhow::{Context, Result, ensure};
 use calamine::{Reader, open_workbook_auto};
 use rust_xlsxwriter::{Format, Workbook};
@@ -1033,6 +1035,41 @@ pub(crate) async fn local_connectivity_test(
     .await
     .map_err(error)?
     .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn host_metrics_probe(
+    state: State<'_, AppState>,
+    host_id: Uuid,
+) -> CommandResult<monitor::HostMetrics> {
+    let database = state.database.to_path_buf();
+    let known = state.known_hosts.to_path_buf();
+    let cached = state.monitor_sessions.lock().await.remove(&host_id);
+    let (metrics, session) = tokio::task::spawn_blocking(
+        move || -> Result<(monitor::HostMetrics, ssh2::Session)> {
+            let hosts = storage::list(&storage::open(&database)?)?;
+            let host = hosts
+                .into_iter()
+                .find(|host| host.id == Some(host_id))
+                .context("主机不存在或已删除")?;
+            let probe = monitor::probe(cached, &host, &known)?;
+            Ok((probe.metrics, probe.session))
+        },
+    )
+    .await
+    .map_err(error)?
+    .map_err(error)?;
+    state.monitor_sessions.lock().await.insert(host_id, session);
+    Ok(metrics)
+}
+
+#[tauri::command]
+pub(crate) async fn host_metrics_stop(
+    state: State<'_, AppState>,
+    host_id: Uuid,
+) -> CommandResult<()> {
+    state.monitor_sessions.lock().await.remove(&host_id);
+    Ok(())
 }
 
 #[tauri::command]

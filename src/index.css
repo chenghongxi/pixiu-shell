@@ -52,6 +52,10 @@
   --tone-teal: #087f83;
   --tone-amber: #a7680b;
   --tone-violet: #7952c3;
+  /* Pixiu console's monitor accent (--pixiu-primary-fg). */
+  --chart-blue: #1476ff;
+  /* Axis and split-line colour, matching the console charts. */
+  --chart-axis: #ededed;
   color-scheme: light;
 }
 :root.dark {
@@ -98,6 +102,8 @@
   --tone-teal: #58cbbb;
   --tone-amber: #e4b568;
   --tone-violet: #b5a0ee;
+  --chart-blue: #7b9cf5;
+  --chart-axis: #444;
   color-scheme: dark;
 }
 @theme inline {
@@ -5559,4 +5565,182 @@ body .host-search-dialog > .host-search-results {
 }
 .ai-markdown-table tbody tr:nth-child(even) {
   background: var(--card);
+}
+/* Host monitoring panel, shaped after the Pixiu console metric cards. */
+.monitor-panel > header > .monitor-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.monitor-panel > header .monitor-actions [data-slot="button"] {
+  font-size: 10px;
+  min-width: 24px;
+  padding: 0 5px;
+}
+.monitor-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 16px;
+}
+.monitor-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.monitor-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.monitor-metric span,
+.monitor-metric small {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.monitor-metric strong {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.metric-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 10px 6px;
+  background: var(--surface);
+}
+.metric-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.metric-card__title {
+  font-size: 12px;
+  font-weight: 500;
+}
+.metric-card__note {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.metric-card__expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  align-self: center;
+}
+.metric-card__expand:hover {
+  color: var(--foreground);
+  background: var(--active);
+}
+.metric-card__expand svg {
+  width: 11px;
+  height: 11px;
+}
+.metric-card--expanded {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, 86vw);
+  z-index: 301;
+  /* --surface respects window opacity and would show the desktop through. */
+  background: var(--surface-solid);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+}
+.metric-card-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.45);
+}
+.metric-card__plot {
+  position: relative;
+  width: 100%;
+}
+.metric-card__grid {
+  stroke: var(--chart-axis);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.metric-card__axis-line {
+  stroke: var(--chart-axis);
+  stroke-width: 1;
+}
+.metric-card__axis {
+  fill: #999;
+  font-size: 9px;
+}
+.metric-card__line {
+  fill: none;
+  stroke-width: 2;
+}
+.metric-card__area {
+  stroke: none;
+}
+.metric-card__cursor {
+  stroke: var(--muted-foreground);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+}
+.metric-card__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.metric-card__tooltip {
+  position: absolute;
+  top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popover);
+  box-shadow: var(--shadow);
+  font-size: 10px;
+  pointer-events: none;
+}
+.metric-card__tooltip-time {
+  color: var(--muted-foreground);
+}
+.metric-card__tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.metric-card__tooltip-row i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.metric-card__tooltip-row b {
+  margin-left: auto;
+  font-weight: 600;
 }

@@ -264,6 +264,31 @@ export interface FileItem {
   permissions?: string;
   modifiedAt?: string;
 }
+export interface HostMetrics {
+  uptimeSecs: number;
+  load1: number;
+  load5: number;
+  load15: number;
+  cores: number;
+  cpuPercent: number;
+  memTotalKb: number;
+  memUsedKb: number;
+  memAvailableKb: number;
+  swapTotalKb: number;
+  swapUsedKb: number;
+  diskTotalKb: number;
+  diskUsedKb: number;
+  netRxBytesPerSec: number;
+  netTxBytesPerSec: number;
+  netRxTotalBytes: number;
+  netTxTotalBytes: number;
+}
+export function hostMetrics(hostId: string) {
+  return command<HostMetrics>("host_metrics_probe", { hostId });
+}
+export function stopHostMetrics(hostId: string) {
+  return command<void>("host_metrics_stop", { hostId });
+}
 export function directOptions(
   options: HostOptions,
 ): { accountId?: string; accessPathId?: string } | null {
