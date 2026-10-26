@@ -677,6 +677,27 @@ export function SettingsPage({
                 </Button>
               </div>
             </div>
+            <FieldGroup>
+              <Field>
+                <FieldLabel>SSH 引擎</FieldLabel>
+                <Choice
+                  label="SSH 引擎"
+                  value={draft.sshEngine ?? "builtin"}
+                  onChange={(value) =>
+                    update("sshEngine", value as Preferences["sshEngine"])
+                  }
+                  options={[
+                    { value: "builtin", label: "内置（推荐）" },
+                    { value: "system", label: "系统 OpenSSH" },
+                  ]}
+                />
+                <FieldDescription>
+                  内置引擎在应用内完成连接、终端与隧道，不依赖系统
+                  OpenSSH 组件。仅在算法协商失败或需要跳板机时切换回系统引擎，
+                  该开关对所有本机会话生效。
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
             <div className="data-table-wrap">
               <table className="data-table">
                 <thead>

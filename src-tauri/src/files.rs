@@ -1,14 +1,21 @@
+use crate::ssh::connect_session;
 use crate::storage::LocalHost;
-use anyhow::{Context, Result, bail, ensure};
-use base64::Engine;
+use anyhow::{Context, Result, ensure};
 use serde::Serialize;
-use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
+use ssh2::Sftp;
 use std::{
+    collections::HashMap,
     io::{Read, Write},
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    sync::{LazyLock, Mutex},
 };
+use uuid::Uuid;
+
+/// One SFTP read or write. libssh2 puts at most this many bytes in a single
+/// packet, and each packet waits for its reply, so the chunk size — not the
+/// bandwidth — decides throughput on a high-latency link.
+const CHUNK: usize = 256 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,92 +43,83 @@ pub(crate) fn connect_with_credentials(
     supplied_password: Option<&str>,
     proxy_password: Option<&str>,
 ) -> Result<Sftp> {
-    connect_session(host, known_hosts, supplied_password, proxy_password)?.sftp()
+    connect_session(host, known_hosts, supplied_password, proxy_password, None)?
+        .sftp()
         .context("服务器不支持 SFTP")
 }
-/// Reused by monitoring probes, which run remote commands instead of transferring files.
-pub(crate) fn connect_session(
+
+/// Idle SFTP connections per host. Two covers the usual "browse while a
+/// transfer runs" pattern without keeping many server sessions open.
+const POOL_LIMIT: usize = 2;
+static POOL: LazyLock<Mutex<HashMap<Uuid, Vec<Sftp>>>> = LazyLock::new(Default::default);
+
+/// Drops cached connections for a host, e.g. after its credentials changed.
+pub(crate) fn forget(id: Uuid) {
+    if let Ok(mut pool) = POOL.lock() {
+        pool.remove(&id);
+    }
+}
+
+fn checkout(id: Uuid) -> Option<Sftp> {
+    POOL.lock().ok()?.get_mut(&id)?.pop()
+}
+
+fn checkin(id: Uuid, sftp: Sftp) {
+    if let Ok(mut pool) = POOL.lock() {
+        let idle = pool.entry(id).or_default();
+        if idle.len() < POOL_LIMIT {
+            idle.push(sftp);
+        }
+    }
+}
+
+/// Runs one operation on a pooled connection. Reusing a session turns "list a
+/// directory" into a single round trip instead of a TCP connect, handshake,
+/// authentication and SFTP subsystem start every time.
+pub(crate) fn with_sftp<T>(
     host: &LocalHost,
     known_hosts: &Path,
-    supplied_password: Option<&str>,
-    proxy_password: Option<&str>,
-) -> Result<Session> {
-    host.validate()?;
-    let socket = crate::proxy::connect_with_password(
-        &host.address,
-        host.port,
-        host.proxy.as_ref(),
-        host.id,
-        proxy_password,
-    )?;
-    socket.set_read_timeout(Some(Duration::from_secs(30)))?;
-    socket.set_write_timeout(Some(Duration::from_secs(30)))?;
-    let mut session = Session::new()?;
-    session.set_timeout(30000);
-    session.set_tcp_stream(socket);
-    session.handshake().context("SSH 握手失败")?;
-    let (key, key_type) = session.host_key().context("服务器没有主机公钥")?;
-    let mut known = session.known_hosts()?;
-    if known_hosts.exists() {
-        known.read_file(known_hosts, KnownHostFileKind::OpenSSH)?;
-    }
-    match known.check_port(&host.address, host.port, key) {
-        CheckResult::Match => {}
-        CheckResult::NotFound => {
-            let fingerprint = session
-                .host_key_hash(ssh2::HashType::Sha256)
-                .context("无法计算主机指纹")?;
-            let fingerprint = base64::engine::general_purpose::STANDARD_NO_PAD.encode(fingerprint);
-            let message = format!(
-                "{}:{}\nSHA256:{}\n\n请通过可信渠道核对该指纹后确认。",
-                host.address, host.port, fingerprint
-            );
-            ensure!(
-                rfd::MessageDialog::new()
-                    .set_title("Pixiu Shell · 验证 SSH 主机指纹")
-                    .set_description(message)
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show()
-                    == rfd::MessageDialogResult::Yes,
-                "已取消主机指纹确认"
-            );
-            let hostname = if host.port == 22 {
-                host.address.to_string()
-            } else {
-                format!("[{}]:{}", host.address, host.port)
-            };
-            known.add(&hostname, key, "PIXIU_SHELL", key_type.into())?;
-            known.write_file(known_hosts, KnownHostFileKind::OpenSSH)?;
-        }
-        CheckResult::Mismatch => bail!("SSH 主机指纹已改变，连接已拒绝。请先确认服务器身份。"),
-        CheckResult::Failure => bail!("无法核验 SSH 主机指纹"),
-    }
-    let stored_password = if host.has_password && supplied_password.is_none() {
-        crate::credentials::read(host.id.context("主机缺少 ID")?)?
-    } else {
-        None
+    operation: impl Fn(&Sftp) -> Result<T>,
+) -> Result<T> {
+    let id = host.id.context("主机缺少 ID，无法复用 SFTP 连接")?;
+    let Some(sftp) = checkout(id) else {
+        return run_fresh(id, host, known_hosts, operation);
     };
-    let password = supplied_password.or_else(|| stored_password.as_deref().map(String::as_str));
-    if !host.identity_file.is_empty() {
-        session
-            .userauth_pubkey_file(
-                &host.username,
-                None,
-                Path::new(&host.identity_file),
-                password,
-            )
-            .context("SSH 私钥认证失败")?;
-    } else if let Some(password) = password {
-        session
-            .userauth_password(&host.username, password)
-            .context("SSH 密码认证失败")?;
-    } else {
-        session
-            .userauth_agent(&host.username)
-            .context("SSH 需要保存主机密码、配置私钥或解锁 SSH Agent，请在主机配置中设置")?;
+    match operation(&sftp) {
+        Ok(value) => {
+            checkin(id, sftp);
+            Ok(value)
+        }
+        // Servers quietly drop idle sessions. Retry once on a fresh
+        // connection before blaming the operation itself.
+        Err(error) if from_libssh2(&error) => run_fresh(id, host, known_hosts, operation),
+        Err(error) => {
+            checkin(id, sftp);
+            Err(error)
+        }
     }
-    ensure!(session.authenticated(), "SSH 认证失败");
-    Ok(session)
+}
+
+fn run_fresh<T>(
+    id: Uuid,
+    host: &LocalHost,
+    known_hosts: &Path,
+    operation: impl Fn(&Sftp) -> Result<T>,
+) -> Result<T> {
+    let sftp = connect(host, known_hosts)?;
+    let result = operation(&sftp);
+    if result.is_ok() {
+        checkin(id, sftp);
+    }
+    result
+}
+
+/// True when libssh2 produced the error. Only that can mean "the cached
+/// connection died"; our own validation errors must not force a reconnect.
+fn from_libssh2(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<ssh2::Error>().is_some())
 }
 pub(crate) fn list(sftp: &Sftp, path: &str) -> Result<Vec<FileItem>> {
     validate_path(path)?;
@@ -187,7 +185,7 @@ pub(crate) fn upload_with_progress(
             ssh2::OpenType::File,
         )
         .context("无法新建远程文件，若文件已存在请先重命名或删除")?;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; CHUNK];
     let mut transferred = 0_u64;
     progress(0, total)?;
     let result = (|| -> Result<()> {
@@ -228,7 +226,7 @@ pub(crate) fn download_to_with_progress(
     let total = input.stat()?.size.unwrap_or(0);
     let parent = destination.parent().context("保存路径无效")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; CHUNK];
     let mut transferred = 0_u64;
     progress(0, total)?;
     loop {
@@ -263,6 +261,15 @@ pub(crate) fn write_download(destination: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reconnect_only_after_libssh2_failures() {
+        // A dead session must be retried on a fresh connection, but our own
+        // validation errors must not trigger a needless reconnect.
+        assert!(from_libssh2(&anyhow::Error::new(ssh2::Error::from_errno(
+            ssh2::ErrorCode::SFTP(5)
+        ))));
+        assert!(!from_libssh2(&anyhow::Error::msg("请输入绝对远程路径")));
+    }
     #[test]
     fn rejects_control_characters_and_relative_paths() {
         for path in ["../etc", "relative", "/tmp/a\nrm", "/tmp/a\0b"] {

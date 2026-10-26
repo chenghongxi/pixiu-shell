@@ -26,6 +26,8 @@ pub(crate) struct Preferences {
     pub window_opacity: u8,
     pub group_by: String,
     pub mode: String,
+    /// Escape hatch: fall back to the system OpenSSH client for every host.
+    pub ssh_engine: String,
     pub platform_address: String,
     pub ai_base_url: String,
     pub ai_model: String,
@@ -46,6 +48,7 @@ impl Default for Preferences {
             window_opacity: 100,
             group_by: "group".into(),
             mode: "local".into(),
+            ssh_engine: "builtin".into(),
             platform_address: String::new(),
             ai_base_url: String::new(),
             ai_model: String::new(),
@@ -53,6 +56,11 @@ impl Default for Preferences {
     }
 }
 impl Preferences {
+    /// True when every local host should connect through the system ssh client.
+    pub fn system_engine(&self) -> bool {
+        self.ssh_engine == "system"
+    }
+
     pub fn validate(&self) -> Result<()> {
         for (key, value) in &self.shortcuts {
             ensure!(
@@ -130,6 +138,10 @@ impl Preferences {
         ensure!(
             ["local", "platform"].contains(&self.mode.as_str()),
             "工作模式无效"
+        );
+        ensure!(
+            ["builtin", "system"].contains(&self.ssh_engine.as_str()),
+            "SSH 引擎无效"
         );
         if !self.platform_address.is_empty() {
             crate::platform::normalize_base(&self.platform_address)?;

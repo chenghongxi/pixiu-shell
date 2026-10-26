@@ -231,6 +231,9 @@ export function TerminalPane({
   const [status, setStatus] = useState<
     "connecting" | "connected" | "closed" | "error"
   >("connecting");
+  // Live connect stage reported by the backend ("正在认证"…), shown while
+  // connecting so a slow host does not look frozen.
+  const [stage, setStage] = useState("");
   const statusRef = useRef(status);
   const readyWaiters = useRef<Array<() => void>>([]);
   useEffect(() => {
@@ -861,6 +864,13 @@ export function TerminalPane({
           }
           if (commandCapture.current && guard.blocked)
             commandCapture.current.failure = guard.message;
+        } else if (
+          event.type === "status" &&
+          !event.data.includes("connected")
+        ) {
+          // Progress stages only move the status label; writing them into the
+          // buffer would push five grey lines above the login banner.
+          setStage(event.data);
         } else {
           if (
             commandCapture.current &&
@@ -1183,7 +1193,7 @@ export function TerminalPane({
           ? "SSH 进程已启动"
           : "已连接"
       : status === "connecting"
-        ? "连接中"
+        ? stage || "连接中"
         : status === "error"
           ? "连接异常"
           : "已断开";

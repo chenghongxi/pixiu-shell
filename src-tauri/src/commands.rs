@@ -677,8 +677,9 @@ pub(crate) async fn file_list(
             let database = state.database.to_path_buf();
             let known = state.known_hosts.to_path_buf();
             tokio::task::spawn_blocking(move || -> Result<Value> {
-                let sftp = files::connect(&local_host(&database, id)?, &known)?;
-                Ok(serde_json::to_value(files::list(&sftp, &path)?)?)
+                files::with_sftp(&local_host(&database, id)?, &known, |sftp| {
+                    Ok(serde_json::to_value(files::list(sftp, &path)?)?)
+                })
             })
             .await
             .map_err(error)?
@@ -731,8 +732,9 @@ pub(crate) async fn file_upload(
         Target::Shell => return Err("本机 Shell 请使用系统文件管理器".into()),
         Target::Local { id } => {
             tokio::task::spawn_blocking(move || -> Result<()> {
-                let sftp = files::connect(&local_host(&database, id)?, &known)?;
-                files::upload(&sftp, &remote, &source)
+                files::with_sftp(&local_host(&database, id)?, &known, |sftp| {
+                    files::upload(sftp, &remote, &source)
+                })
             })
             .await
             .map_err(error)?
@@ -814,8 +816,9 @@ pub(crate) async fn file_download(
             let database = state.database.to_path_buf();
             let known = state.known_hosts.to_path_buf();
             tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-                let sftp = files::connect(&local_host(&database, id)?, &known)?;
-                files::download(&sftp, &path)
+                files::with_sftp(&local_host(&database, id)?, &known, |sftp| {
+                    files::download(sftp, &path)
+                })
             })
             .await
             .map_err(error)?
@@ -905,12 +908,13 @@ pub(crate) async fn file_upload_progress(
     let known = state.known_hosts.to_path_buf();
     let event_channel = channel.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<()> {
-        let sftp = files::connect(&local_host(&database, host)?, &known)?;
-        files::upload_with_progress(&sftp, &remote, &source, &cancelled, |transferred, total| {
-            event_channel.send(
-                json!({"eventType":"progress","payload":{"transferred":transferred,"total":total}}),
-            )?;
-            Ok(())
+        files::with_sftp(&local_host(&database, host)?, &known, |sftp| {
+            files::upload_with_progress(sftp, &remote, &source, &cancelled, |transferred, total| {
+                event_channel.send(
+                    json!({"eventType":"progress","payload":{"transferred":transferred,"total":total}}),
+                )?;
+                Ok(())
+            })
         })
     })
     .await
@@ -957,10 +961,11 @@ pub(crate) async fn file_download_progress(
     let known = state.known_hosts.to_path_buf();
     let event_channel = channel.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<()> {
-        let sftp = files::connect(&local_host(&database, host)?, &known)?;
-        files::download_to_with_progress(&sftp, &path, &destination, &cancelled, |transferred, total| {
-            event_channel.send(json!({"eventType":"progress","payload":{"transferred":transferred,"total":total}}))?;
-            Ok(())
+        files::with_sftp(&local_host(&database, host)?, &known, |sftp| {
+            files::download_to_with_progress(sftp, &path, &destination, &cancelled, |transferred, total| {
+                event_channel.send(json!({"eventType":"progress","payload":{"transferred":transferred,"total":total}}))?;
+                Ok(())
+            })
         })
     }).await.map_err(error)?;
     finish_transfer(&state, id).await;
@@ -983,8 +988,9 @@ pub(crate) async fn file_delete(
             let database = state.database.to_path_buf();
             let known = state.known_hosts.to_path_buf();
             tokio::task::spawn_blocking(move || -> Result<()> {
-                let sftp = files::connect(&local_host(&database, id)?, &known)?;
-                files::delete(&sftp, &path)
+                files::with_sftp(&local_host(&database, id)?, &known, |sftp| {
+                    files::delete(sftp, &path)
+                })
             })
             .await
             .map_err(error)?

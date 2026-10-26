@@ -12,8 +12,10 @@ mod platform;
 mod preferences;
 mod proxy;
 mod screen_lock;
+mod ssh;
 mod storage;
 mod terminal;
+mod tunnel;
 
 use anyhow::{Context, Result};
 use platform::Platform;
@@ -108,7 +110,10 @@ async fn save_host(
                         .is_some_and(|value| !value.is_empty())
                         || old_proxy.is_some());
             }
-            storage::save(&db, host)
+            let host = storage::save(&db, host)?;
+            // Pooled SFTP sessions were authenticated with the old settings.
+            files::forget(id);
+            Ok(host)
         })();
         match saved {
             Ok(host) => Ok(host),
@@ -144,6 +149,7 @@ async fn delete_host(state: State<'_, AppState>, id: Uuid) -> CommandResult<()> 
         }
         proxy::set_password(id, None)?;
         db.execute("DELETE FROM local_hosts WHERE id=?1", [id.to_string()])?;
+        files::forget(id);
         Ok(())
     })
     .await
@@ -254,11 +260,21 @@ async fn terminal_open(
             let known_hosts = state.known_hosts.to_path_buf();
             let sessions = Arc::clone(&state.sessions);
             tokio::task::spawn_blocking(move || -> Result<()> {
-                let host = storage::list(&storage::open(&database)?)?
+                let connection = storage::open(&database)?;
+                let host = storage::list(&connection)?
                     .into_iter()
                     .find(|host| host.id == Some(id))
                     .context("本地主机不存在或已删除")?;
-                sessions.open_local(session_id, host, &known_hosts, channel, cols, rows)
+                let system_engine = preferences::load(&connection)?.system_engine();
+                sessions.open_local(
+                    session_id,
+                    host,
+                    &known_hosts,
+                    system_engine,
+                    channel,
+                    cols,
+                    rows,
+                )
             })
             .await
             .map_err(error)?

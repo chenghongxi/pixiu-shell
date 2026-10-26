@@ -4,10 +4,13 @@ use portable_pty::{CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
-    io::{Read, Write},
+    collections::{HashMap, VecDeque},
+    io::{ErrorKind, Read, Write},
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tauri::ipc::Channel;
@@ -15,6 +18,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::{Message, http::Request};
 use uuid::Uuid;
 
+use crate::ssh;
 use crate::storage::LocalHost;
 
 #[derive(Debug, Serialize)]
@@ -92,7 +96,36 @@ impl LocalSession {
 
 enum Session {
     Local(LocalSession),
+    Ssh(SshSession),
     Platform(mpsc::Sender<Message>),
+}
+
+/// Commands the UI thread forwards to the dedicated SSH session thread.
+enum SshCommand {
+    Input(Vec<u8>),
+    Resize(u16, u16),
+}
+
+/// Handle for the builtin ssh2 transport. All libssh2 access happens on the
+/// session thread; the UI only sends commands and flips the close flag.
+struct SshSession {
+    commands: std::sync::mpsc::Sender<SshCommand>,
+    closed: Arc<AtomicBool>,
+    /// Held for its Drop side effect: dropping stops the tunnel worker threads.
+    _tunnels: crate::tunnel::TunnelSet,
+}
+
+impl SshSession {
+    fn send(&self, command: SshCommand) -> Result<()> {
+        self.commands
+            .send(command)
+            .map_err(|_| anyhow!("终端已断开"))
+    }
+
+    /// Asks the session thread to finish; it tears down the session itself.
+    fn stop(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+    }
 }
 
 struct SessionEntry {
@@ -147,23 +180,29 @@ impl Sessions {
             .lock()
             .map_err(|_| anyhow!("终端状态锁不可用"))?;
         let entry = entries.get(&id).context("终端已关闭")?;
-        Ok(!entry.is_system_shell && matches!(entry.transport, Session::Local(_)))
+        Ok(
+            !entry.is_system_shell
+                && matches!(entry.transport, Session::Local(_) | Session::Ssh(_)),
+        )
     }
     pub fn close(&self, id: Uuid) -> Result<()> {
         let mut entries = self
             .entries
             .lock()
             .map_err(|_| anyhow!("终端状态锁不可用"))?;
-        if let Some(entry) = entries.get(&id)
-            && let Session::Local(session) = &entry.transport
-        {
-            session.terminate().with_context(|| {
-                if entry.is_system_shell {
-                    "无法关闭本机 Shell 进程"
-                } else {
-                    "无法关闭 SSH 进程"
-                }
-            })?;
+        if let Some(entry) = entries.get(&id) {
+            match &entry.transport {
+                Session::Local(session) => session.terminate().with_context(|| {
+                    if entry.is_system_shell {
+                        "无法关闭本机 Shell 进程"
+                    } else {
+                        "无法关闭 SSH 进程"
+                    }
+                })?,
+                // The ssh2 session thread performs its own teardown and emits Closed.
+                Session::Ssh(session) => session.stop(),
+                Session::Platform(_) => {}
+            }
         }
         entries.remove(&id);
         // Dropping the last sender stops the WebSocket worker.
@@ -171,10 +210,16 @@ impl Sessions {
     }
 
     pub fn close_platform(&self) -> Result<()> {
-        self.entries
+        let mut entries = self
+            .entries
             .lock()
-            .map_err(|_| anyhow!("终端状态锁不可用"))?
-            .retain(|_, value| matches!(value.transport, Session::Local(_)));
+            .map_err(|_| anyhow!("终端状态锁不可用"))?;
+        for value in entries.values() {
+            if let Session::Ssh(session) = &value.transport {
+                session.stop();
+            }
+        }
+        entries.retain(|_, value| matches!(value.transport, Session::Local(_)));
         Ok(())
     }
 
@@ -187,10 +232,14 @@ impl Sessions {
         );
         let mut failure = None;
         for (_, entry) in entries {
-            if let Session::Local(session) = entry.transport
-                && let Err(error) = session.terminate()
-            {
-                failure = Some(error);
+            match entry.transport {
+                Session::Local(session) => {
+                    if let Err(error) = session.terminate() {
+                        failure = Some(error);
+                    }
+                }
+                Session::Ssh(session) => session.stop(),
+                Session::Platform(_) => {}
             }
         }
         match failure {
@@ -213,6 +262,7 @@ impl Sessions {
                         local.writer.write_all(data.as_bytes())?;
                         local.writer.flush()?;
                     }
+                    Session::Ssh(ssh) => ssh.send(SshCommand::Input(data.into_bytes()))?,
                     Session::Platform(sender) => sender
                         .try_send(Message::Text(
                             json!({"type":"input","data":data,"command":command})
@@ -226,6 +276,7 @@ impl Sessions {
                 let size = size(cols, rows);
                 match &mut entry.transport {
                     Session::Local(local) => local.master.resize(size)?,
+                    Session::Ssh(ssh) => ssh.send(SshCommand::Resize(size.cols, size.rows))?,
                     Session::Platform(sender) => sender
                         .try_send(Message::Text(
                             json!({"type":"resize","cols":size.cols,"rows":size.rows})
@@ -250,12 +301,125 @@ impl Sessions {
             Session::Platform(sender) => sender
                 .try_send(Message::Text(data.into()))
                 .context("RDP 输入队列已满或连接已关闭")?,
-            Session::Local(_) => bail!("当前会话不是 RDP"),
+            Session::Local(_) | Session::Ssh(_) => bail!("当前会话不是 RDP"),
         }
         Ok(())
     }
 
+    /// `system_engine` is the global escape hatch: it routes every host through
+    /// the system OpenSSH client instead of the builtin ssh2 transport.
     pub fn open_local(
+        self: &Arc<Self>,
+        id: Uuid,
+        host: LocalHost,
+        known_hosts: &Path,
+        system_engine: bool,
+        channel: Channel<Event>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<()> {
+        host.validate()?;
+        if system_engine {
+            self.open_local_system(id, host, known_hosts, channel, cols, rows)
+        } else {
+            self.open_local_builtin(id, host, known_hosts, channel, cols, rows)
+        }
+    }
+
+    /// Builtin ssh2 transport: proxy hops, host-key checks, authentication,
+    /// PTY and tunnels all live in-process with no system OpenSSH dependency.
+    fn open_local_builtin(
+        self: &Arc<Self>,
+        id: Uuid,
+        host: LocalHost,
+        known_hosts: &Path,
+        events: Channel<Event>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<()> {
+        let stage = |message: &str| {
+            let _ = events.send(Event::Status(message.into()));
+        };
+        let session = ssh::connect_session(&host, known_hosts, None, None, Some(&stage))?;
+        stage("认证成功，正在打开远程 Shell");
+        let mut remote = ssh::open_shell(&session, cols, rows)?;
+        session.set_blocking(false);
+        let tunnels = crate::tunnel::spawn(&host, known_hosts)?;
+        let (commands, receiver) = std::sync::mpsc::channel::<SshCommand>();
+        let closed = Arc::new(AtomicBool::new(false));
+        self.entries
+            .lock()
+            .map_err(|_| anyhow!("终端状态锁不可用"))?
+            .insert(
+                id,
+                SessionEntry {
+                    is_system_shell: false,
+                    platform_host: None,
+                    transport: Session::Ssh(SshSession {
+                        commands,
+                        closed: Arc::clone(&closed),
+                        _tunnels: tunnels,
+                    }),
+                },
+            );
+        let sessions = Arc::clone(self);
+        std::thread::spawn(move || {
+            // Non-blocking poll loop: libssh2 has no thread-safe blocking read,
+            // so input, resize and output share one dedicated session thread.
+            let mut buffer = [0_u8; 16384];
+            let mut pending: VecDeque<u8> = VecDeque::new();
+            let result: Result<()> = loop {
+                if closed.load(Ordering::Relaxed) {
+                    break Ok(());
+                }
+                let mut moved = false;
+                while let Ok(command) = receiver.try_recv() {
+                    moved = true;
+                    match command {
+                        SshCommand::Input(data) => pending.extend(data),
+                        SshCommand::Resize(cols, rows) => {
+                            let _ = remote.request_pty_size(cols.into(), rows.into(), None, None);
+                        }
+                    }
+                }
+                if ssh::drain(&mut pending, &mut remote) {
+                    break Err(anyhow!("SSH 输入发送失败"));
+                }
+                match remote.read(&mut buffer) {
+                    Ok(0) => break Ok(()),
+                    Ok(count) => {
+                        moved = true;
+                        if events
+                            .send(Event::Output(buffer[..count].to_vec()))
+                            .is_err()
+                        {
+                            break Ok(());
+                        }
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+                    Err(error) => break Err(anyhow!("SSH 连接中断：{error}")),
+                }
+                // Only idle sessions sleep. Sleeping after every chunk would
+                // cap output at 16 KiB per poll, throttling busy shells.
+                if !moved {
+                    std::thread::sleep(ssh::POLL);
+                }
+            };
+            if let Err(error) = result {
+                let _ = events.send(Event::Error(error.to_string()));
+            }
+            session.set_blocking(true);
+            let _ = remote.close();
+            let _ = session.disconnect(None, "", None);
+            drop(remote);
+            if let Err(error) = sessions.close(id) {
+                let _ = events.send(Event::Error(error.to_string()));
+            }
+            let _ = events.send(Event::Closed);
+        });
+        Ok(())
+    }
+    fn open_local_system(
         self: &Arc<Self>,
         id: Uuid,
         host: LocalHost,
@@ -264,7 +428,6 @@ impl Sessions {
         cols: u16,
         rows: u16,
     ) -> Result<()> {
-        host.validate()?;
         let mut command = CommandBuilder::new("ssh");
         // Use argv, never shell interpolation. Ignore arbitrary user SSH config commands.
         command.args([
@@ -399,11 +562,13 @@ impl Sessions {
             if is_system_shell {
                 let _ = channel.send(Event::Status("local shell connected".into()));
             }
+            let mut produced_output = false;
             let mut buffer = [0_u8; 16384];
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => {
+                        produced_output = true;
                         if channel
                             .send(Event::Output(buffer[..count].to_vec()))
                             .is_err()
@@ -425,13 +590,32 @@ impl Sessions {
                 .lock()
                 .map_err(|_| anyhow!("终端进程锁不可用"))
                 .and_then(|mut process| process.wait().map_err(Into::into));
-            if let Err(error) = waited {
-                let label = if is_system_shell {
-                    "本机 Shell"
-                } else {
-                    "SSH"
-                };
-                let _ = channel.send(Event::Error(format!("{label} 进程退出异常：{error}")));
+            match waited {
+                Err(error) => {
+                    let label = if is_system_shell {
+                        "本机 Shell"
+                    } else {
+                        "SSH"
+                    };
+                    let _ = channel.send(Event::Error(format!("{label} 进程退出异常：{error}")));
+                }
+                // A silent nonzero exit before any PTY byte means the process
+                // never came up (e.g. a broken OpenSSH install), which must be
+                // reported instead of leaving the terminal stuck on connecting.
+                Ok(status) if !produced_output && status.exit_code() != 0 => {
+                    let code = status.exit_code();
+                    let message = if code == 0xC000_0135 {
+                        "系统 SSH 客户端组件不完整（STATUS_DLL_NOT_FOUND），请在系统设置的「可选功能」中重装 OpenSSH 客户端，或在设置的「本地主机」中把 SSH 引擎切回内置".to_string()
+                    } else if is_system_shell {
+                        format!("本机 Shell 启动失败（退出码 {code:#x}）")
+                    } else {
+                        format!(
+                            "SSH 客户端启动失败（退出码 {code:#x}），请检查系统 OpenSSH 组件，或在设置的「本地主机」中把 SSH 引擎切回内置"
+                        )
+                    };
+                    let _ = channel.send(Event::Error(message));
+                }
+                Ok(_) => {}
             }
             let _ = channel.send(Event::Closed);
         });
@@ -664,6 +848,36 @@ mod tests {
     }
 
     #[test]
+    fn silent_nonzero_exit_surfaces_an_error_instead_of_hanging() -> Result<()> {
+        let sessions = Arc::new(Sessions::default());
+        let id = Uuid::new_v4();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let events = Channel::new(move |body| {
+            let _ = sender.send(body.deserialize::<Value>()?);
+            Ok(())
+        });
+        let mut command = CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
+        command.args(if cfg!(windows) {
+            vec!["/C", "exit 7"]
+        } else {
+            vec!["-c", "exit 7"]
+        });
+        sessions.spawn_process(id, command, events, (80, 24), false)?;
+        let mut saw_error = false;
+        loop {
+            let event = receiver.recv_timeout(Duration::from_secs(8))?;
+            match event["type"].as_str() {
+                Some("error") => saw_error = true,
+                Some("closed") => break,
+                _ => {}
+            }
+        }
+        assert!(saw_error, "silent nonzero exit must report an error");
+        sessions.close(id)?;
+        Ok(())
+    }
+
+    #[test]
     fn real_system_shell_has_interactive_io() -> Result<()> {
         let sessions = Arc::new(Sessions::default());
         let id = Uuid::new_v4();
@@ -811,6 +1025,7 @@ mod tests {
             id,
             host,
             Path::new(fixture["knownHosts"].as_str().context("knownHosts")?),
+            false,
             channel,
             100,
             30,

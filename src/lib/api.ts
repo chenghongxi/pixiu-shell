@@ -235,6 +235,7 @@ export interface Preferences {
   windowOpacity: number;
   groupBy: "group" | "tag";
   mode: Mode;
+  sshEngine: "builtin" | "system";
   platformAddress: string;
   aiBaseUrl: string;
   aiModel: string;
@@ -252,6 +253,7 @@ export const defaultPreferences: Preferences = {
   windowOpacity: 100,
   groupBy: "group",
   mode: "local",
+  sshEngine: "builtin",
   platformAddress: "",
   aiBaseUrl: "",
   aiModel: "",

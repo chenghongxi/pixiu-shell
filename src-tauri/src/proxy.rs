@@ -4,10 +4,15 @@ use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
     net::{Shutdown, TcpStream, ToSocketAddrs},
+    sync::mpsc,
     time::Duration,
 };
 use uuid::Uuid;
-#[derive(Debug, Serialize, Deserialize)]
+
+/// Upper bound for one dial attempt: long enough for a slow WAN link, short
+/// enough that a dead address never freezes the whole connection.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Proxy {
     pub kind: String,
@@ -87,14 +92,9 @@ pub(crate) fn connect_with_password(
     let (address, endpoint_port) = proxy
         .map(|p| (p.address.as_str(), p.port))
         .unwrap_or((host, port));
-    let mut socket = None;
-    for address in (address, endpoint_port).to_socket_addrs()? {
-        if let Ok(stream) = TcpStream::connect_timeout(&address, Duration::from_secs(60)) {
-            socket = Some(stream);
-            break;
-        }
-    }
-    let mut socket = socket.context("无法连接主机或代理")?;
+    let mut socket = dial(address, endpoint_port)?;
+    // Interactive SSH sends single keystrokes; Nagle would delay each of them.
+    socket.set_nodelay(true)?;
     socket.set_read_timeout(Some(Duration::from_secs(30)))?;
     socket.set_write_timeout(Some(Duration::from_secs(30)))?;
     if let Some(proxy) = proxy {
@@ -124,6 +124,46 @@ pub(crate) fn connect_with_password(
     }
     Ok(socket)
 }
+/// Dials every resolved address at once and keeps the first one that answers.
+/// Dialing in order makes a host with an unreachable AAAA record — IPv6 is
+/// resolved first — block for a full timeout before IPv4 is even attempted.
+fn dial(host: &str, port: u16) -> Result<TcpStream> {
+    let addresses: Vec<_> = (host, port)
+        .to_socket_addrs()
+        .with_context(|| format!("无法解析地址 {host}:{port}"))?
+        .collect();
+    let Some(first) = addresses.first().copied() else {
+        bail!("地址 {host}:{port} 没有解析结果");
+    };
+    if addresses.len() == 1 {
+        return TcpStream::connect_timeout(&first, CONNECT_TIMEOUT)
+            .with_context(|| format!("无法连接 {host}:{port}"));
+    }
+    let (sender, receiver) = mpsc::channel();
+    for address in addresses {
+        let sender = sender.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(TcpStream::connect_timeout(&address, CONNECT_TIMEOUT));
+        });
+    }
+    drop(sender);
+    let mut failure = None;
+    // Losers report errors immediately, so keep waiting for a winner until
+    // every attempt has answered or the shared timeout elapses.
+    while let Ok(attempt) = receiver.recv_timeout(CONNECT_TIMEOUT) {
+        match attempt {
+            Ok(socket) => return Ok(socket),
+            Err(error) => failure = Some(error),
+        }
+    }
+    match failure {
+        Some(error) => {
+            Err(anyhow::Error::new(error)).with_context(|| format!("无法连接 {host}:{port}"))
+        }
+        None => bail!("连接 {host}:{port} 超时"),
+    }
+}
+
 fn handshake(
     socket: &mut TcpStream,
     host: &str,

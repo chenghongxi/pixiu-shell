@@ -74,7 +74,7 @@ pub(crate) fn probe(
             });
         }
     }
-    let session = crate::files::connect_session(host, known_hosts, None, None)?;
+    let session = crate::ssh::connect_session(host, known_hosts, None, None, None)?;
     let output = exec(&session).context("远程采集失败")?;
     Ok(Probe {
         session,
