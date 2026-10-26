@@ -98,7 +98,7 @@ const AiAssistant = lazy(() =>
   })),
 );
 import type { TerminalHandle } from "@/lib/terminal-ai";
-import { AiDock } from "@/components/AiDock";
+import { PanelDock } from "@/components/PanelDock";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import {
   measurePanes,
@@ -912,6 +912,12 @@ export default function App() {
   const hosts = mode === "local" ? localHosts.map(fromLocal) : platformHosts;
   const selected = hosts.find((host) => host.id === selectedId);
   const activeSession = sessions.find((session) => session.id === active);
+  // 主机监控只在平台/图形会话里可用，shell 会话没有采集来源。
+  const monitorPanelOpen =
+    monitorOpen &&
+    view === "workspace" &&
+    !!activeSession &&
+    activeSession.target.mode !== "shell";
   const activeLayout =
     layouts.find((root) => paneIds(root).includes(active)) ??
     (activeSession ? { kind: "pane" as const, id: active } : null);
@@ -1128,13 +1134,18 @@ export default function App() {
                     connecting
                   }
                   onClick={() => {
-                    setAiOpen(false);
-                    if (activeSession)
-                      setFileTarget({
-                        target: activeSession.target,
-                        name: activeSession.host.name,
-                      });
-                    else if (selected) void connect(selected, "files");
+                    // 三个侧边面板可以同时打开，这里只切换自己。
+                    if (activeSession) {
+                      const target = activeSession.target;
+                      setFileTarget((current) =>
+                        current &&
+                        current.target.mode === target.mode &&
+                        current.target.id === target.id &&
+                        current.target.accountId === target.accountId
+                          ? null
+                          : { target, name: activeSession.host.name },
+                      );
+                    } else if (selected) void connect(selected, "files");
                   }}
                 >
                   <ObjectStorageFolderIcon />
@@ -1147,11 +1158,7 @@ export default function App() {
                       aria-label="主机 AI"
                       title="主机 AI 助手"
                       data-active={aiOpen}
-                      onClick={() => {
-                        setAiOpen((value) => !value);
-                        setMonitorOpen(false);
-                        setFileTarget(null);
-                      }}
+                      onClick={() => setAiOpen((value) => !value)}
                     >
                       <Sparkles className="size-3.5" />
                     </Button>
@@ -1161,11 +1168,7 @@ export default function App() {
                       aria-label="主机监控"
                       title="主机监控"
                       data-active={monitorOpen}
-                      onClick={() => {
-                        setMonitorOpen((value) => !value);
-                        setAiOpen(false);
-                        setFileTarget(null);
-                      }}
+                      onClick={() => setMonitorOpen((value) => !value)}
                     >
                       <MonitorIcon className="size-3.5" />
                     </Button>
@@ -1449,42 +1452,6 @@ export default function App() {
           </div>
         </aside>
         <main className="workspace">
-          <div className="session-tabrow" hidden={view !== "workspace"}>
-            <div className="session-bar" ref={sessionBarRef}>
-              {sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className={cn(
-                    "session-tab",
-                    active === session.id && "active",
-                  )}
-                  data-session-tab-id={session.id}
-                  data-tauri-drag-region="false"
-                  data-drag-source={drag?.sourceId === session.id}
-                >
-                  <button
-                    className="session-tab-drag"
-                    title="拖到终端左、右、上、下边缘分屏；悬停其他标签可切换目标"
-                    {...bindPaneDrag(session.id)}
-                    onClick={() => activateSession(session)}
-                    onDoubleClick={() => toggleMaximizedPane(session.id)}
-                  >
-                    <TerminalSquare />
-                    <span>{sessionTitle(session)}</span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`关闭 ${sessionTitle(session)}`}
-                    onClick={() => closeSession(session.id)}
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <div className="session-tabrow-space" data-tauri-drag-region />
-          </div>
           {!desktop ? (
             <div className="preview-notice">
               浏览器预览 · 配色与布局可体验，SSH、SFTP
@@ -1528,6 +1495,42 @@ export default function App() {
           </div>
           <div className="terminal-workspace" hidden={view !== "workspace"}>
             <div className="session-layout">
+              <div className="session-tabrow">
+                <div className="session-bar" ref={sessionBarRef}>
+                  {sessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className={cn(
+                        "session-tab",
+                        active === session.id && "active",
+                      )}
+                      data-session-tab-id={session.id}
+                      data-tauri-drag-region="false"
+                      data-drag-source={drag?.sourceId === session.id}
+                    >
+                      <button
+                        className="session-tab-drag"
+                        title="拖到终端左、右、上、下边缘分屏；悬停其他标签可切换目标"
+                        {...bindPaneDrag(session.id)}
+                        onClick={() => activateSession(session)}
+                        onDoubleClick={() => toggleMaximizedPane(session.id)}
+                      >
+                        <TerminalSquare />
+                        <span>{sessionTitle(session)}</span>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`关闭 ${sessionTitle(session)}`}
+                        onClick={() => closeSession(session.id)}
+                      >
+                        <X />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="session-tabrow-space" data-tauri-drag-region />
+              </div>
               <div className="session-content" ref={paneContainer}>
                 <section className="connection-page" hidden={active !== "home"}>
                   <div className="page-title">
@@ -2005,81 +2008,72 @@ export default function App() {
                   </div>
                 ) : null}
               </div>
-              <AiDock
+              <PanelDock
                 width={preferences.aiPanelWidth ?? 400}
                 onWidthChange={(aiPanelWidth) =>
                   void patchPreferences({ aiPanelWidth }).catch((error) =>
                     toast.error(errorMessage(error)),
                   )
                 }
-                hidden={!aiOpen}
+                hidden={!aiOpen && !monitorPanelOpen && !fileTarget}
               >
-                <Suspense
-                  fallback={<div className="table-empty">正在加载主机 AI…</div>}
-                >
-                  <AiAssistant
-                    key={`chat:${user?.username ?? ""}`}
-                    visible={
-                      aiOpen &&
-                      mode === "platform" &&
-                      !!user &&
-                      !activeSession &&
-                      view === "workspace"
+                <div className="ai-panels" hidden={!aiOpen}>
+                  <Suspense
+                    fallback={
+                      <div className="table-empty">正在加载主机 AI…</div>
                     }
-                    getTerminal={() => undefined}
-                    onClose={() => setAiOpen(false)}
-                  />
-                  {sessions
-                    .filter((session) => session.target.mode !== "shell")
-                    .map((session) => (
-                      <AiAssistant
-                        key={session.id}
-                        host={session.host}
-                        target={session.target}
-                        visible={
-                          aiOpen &&
-                          active === session.id &&
-                          view === "workspace"
-                        }
-                        getTerminal={() =>
-                          terminalHandles.current.get(session.id)
-                        }
-                        onClose={() => setAiOpen(false)}
-                      />
-                    ))}
-                </Suspense>
-              </AiDock>
-              <AiDock
-                width={preferences.aiPanelWidth ?? 400}
-                onWidthChange={(aiPanelWidth) =>
-                  void patchPreferences({ aiPanelWidth }).catch((error) =>
-                    toast.error(errorMessage(error)),
-                  )
-                }
-                hidden={
-                  !monitorOpen ||
-                  view !== "workspace" ||
-                  activeSession?.target.mode === "shell" ||
-                  !activeSession
-                }
-              >
-                {activeSession && activeSession.target.mode !== "shell" ? (
-                  <HostMonitor
-                    key={activeSession.id}
-                    host={activeSession.host}
-                    visible={monitorOpen && view === "workspace"}
-                    onClose={() => setMonitorOpen(false)}
+                  >
+                    <AiAssistant
+                      key={`chat:${user?.username ?? ""}`}
+                      visible={
+                        aiOpen &&
+                        mode === "platform" &&
+                        !!user &&
+                        !activeSession &&
+                        view === "workspace"
+                      }
+                      getTerminal={() => undefined}
+                      onClose={() => setAiOpen(false)}
+                    />
+                    {sessions
+                      .filter((session) => session.target.mode !== "shell")
+                      .map((session) => (
+                        <AiAssistant
+                          key={session.id}
+                          host={session.host}
+                          target={session.target}
+                          visible={
+                            aiOpen &&
+                            active === session.id &&
+                            view === "workspace"
+                          }
+                          getTerminal={() =>
+                            terminalHandles.current.get(session.id)
+                          }
+                          onClose={() => setAiOpen(false)}
+                        />
+                      ))}
+                  </Suspense>
+                </div>
+                <div className="ai-panels" hidden={!monitorPanelOpen}>
+                  {activeSession && activeSession.target.mode !== "shell" ? (
+                    <HostMonitor
+                      key={activeSession.id}
+                      host={activeSession.host}
+                      visible={monitorPanelOpen}
+                      onClose={() => setMonitorOpen(false)}
+                    />
+                  ) : null}
+                </div>
+                {fileTarget ? (
+                  <FileManager
+                    key={`${fileTarget.target.mode}:${fileTarget.target.id}:${fileTarget.target.accountId}:${fileTarget.target.accessPathId}`}
+                    target={fileTarget.target}
+                    name={fileTarget.name}
+                    onClose={() => setFileTarget(null)}
                   />
                 ) : null}
-              </AiDock>
-              {fileTarget ? (
-                <FileManager
-                  key={`${fileTarget.target.mode}:${fileTarget.target.id}:${fileTarget.target.accountId}:${fileTarget.target.accessPathId}`}
-                  target={fileTarget.target}
-                  name={fileTarget.name}
-                  onClose={() => setFileTarget(null)}
-                />
-              ) : null}
+              </PanelDock>
             </div>
           </div>
           <div hidden={view !== "workspace"} className="batch-command-dock">

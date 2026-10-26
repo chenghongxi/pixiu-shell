@@ -1289,96 +1289,98 @@ export function TerminalPane({
           </Button>
         </div>
       ) : null}
-      <div
-        className="terminal-meta"
-        title="10 分钟无终端输入后自动断开；心跳和终端输出不延长空闲时间"
-      >
-        {title ? (
-          <button
-            type="button"
-            className="pane-drag-bar"
-            aria-label={`拖动窗格 ${title}`}
-            title="双击标题栏最大化 / 恢复；拖动边缘重排、中心交换；Alt 拖动终端区域"
-            {...dragHandleProps}
-          >
-            <GripVertical className="pane-grip" />
-            <span className={`connection-dot ${status}`} />
-            <strong className="pane-title">{title}</strong>
-            {terminalTitle ? (
-              <span className="pane-host-label">{baseTitle}</span>
-            ) : null}
-            <span className="pane-connection-label">{statusLabel}</span>
-          </button>
-        ) : (
-          <span className="terminal-status">
-            <span className={`connection-dot ${status}`} />
-            <span>{statusLabel}</span>
-          </span>
-        )}
-        {!title && terminalTitle ? (
-          <div className="terminal-runtime-title">
-            <strong>{terminalTitle}</strong>
-            <small>{baseTitle}</small>
-          </div>
-        ) : null}
-        {target.mode !== "shell" ? (
-          <button
-            type="button"
-            className="terminal-address"
-            aria-label={`复制 IP ${address}`}
-            title={`复制 IP：${address}`}
-            onClick={() =>
-              void navigator.clipboard
-                .writeText(address)
-                .then(() => toast.success("IP 已复制"))
-                .catch((error) => toast.error(errorMessage(error)))
-            }
-          >
-            <span>{address}</span>
-            <Copy />
-          </button>
-        ) : (
-          <span className="terminal-address">本机</span>
-        )}
-        {isRdp ? (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={rdpFullscreen ? "退出 RDP 全屏" : "RDP 全屏"}
-            title={rdpFullscreen ? "退出全屏" : "全屏"}
-            onClick={() => void toggleRdpFullscreen()}
-          >
-            <Maximize2 />
-          </Button>
-        ) : null}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            disabled={status === "connecting"}
-            aria-label={status === "connected" ? "断开终端" : "连接终端"}
-            title={status === "connected" ? "断开" : "连接"}
-            onClick={() =>
-              status === "connected"
-                ? void disconnect()
-                : setGeneration((value) => value + 1)
-            }
-          >
-            {status === "connected" ? <Unplug /> : <PlugZap />}
-          </Button>
-          {onClose ? (
+      {title || isRdp ? (
+        <div
+          className="terminal-meta"
+          title="10 分钟无终端输入后自动断开；心跳和终端输出不延长空闲时间"
+        >
+          {title ? (
+            <button
+              type="button"
+              className="pane-drag-bar"
+              aria-label={`拖动窗格 ${title}`}
+              title="双击标题栏最大化 / 恢复；拖动边缘重排、中心交换；Alt 拖动终端区域"
+              {...dragHandleProps}
+            >
+              <GripVertical className="pane-grip" />
+              <span className={`connection-dot ${status}`} />
+              <strong className="pane-title">{title}</strong>
+              {terminalTitle ? (
+                <span className="pane-host-label">{baseTitle}</span>
+              ) : null}
+              <span className="pane-connection-label">{statusLabel}</span>
+            </button>
+          ) : (
+            <span className="terminal-status">
+              <span className={`connection-dot ${status}`} />
+              <span>{statusLabel}</span>
+            </span>
+          )}
+          {!title && terminalTitle ? (
+            <div className="terminal-runtime-title">
+              <strong>{terminalTitle}</strong>
+              <small>{baseTitle}</small>
+            </div>
+          ) : null}
+          {target.mode !== "shell" ? (
+            <button
+              type="button"
+              className="terminal-address"
+              aria-label={`复制 IP ${address}`}
+              title={`复制 IP：${address}`}
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(address)
+                  .then(() => toast.success("IP 已复制"))
+                  .catch((error) => toast.error(errorMessage(error)))
+              }
+            >
+              <span>{address}</span>
+              <Copy />
+            </button>
+          ) : (
+            <span className="terminal-address">本机</span>
+          )}
+          {isRdp ? (
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label={`关闭窗格 ${title}`}
-              title="关闭窗格"
-              onClick={onClose}
+              aria-label={rdpFullscreen ? "退出 RDP 全屏" : "RDP 全屏"}
+              title={rdpFullscreen ? "退出全屏" : "全屏"}
+              onClick={() => void toggleRdpFullscreen()}
             >
-              <X />
+              <Maximize2 />
             </Button>
           ) : null}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              disabled={status === "connecting"}
+              aria-label={status === "connected" ? "断开终端" : "连接终端"}
+              title={status === "connected" ? "断开" : "连接"}
+              onClick={() =>
+                status === "connected"
+                  ? void disconnect()
+                  : setGeneration((value) => value + 1)
+              }
+            >
+              {status === "connected" ? <Unplug /> : <PlugZap />}
+            </Button>
+            {onClose ? (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`关闭窗格 ${title}`}
+                title="关闭窗格"
+                onClick={onClose}
+              >
+                <X />
+              </Button>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
       <Dialog
         open={!!transferPath}
         onOpenChange={(open) => {

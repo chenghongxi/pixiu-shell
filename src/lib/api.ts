@@ -226,6 +226,7 @@ export interface Preferences {
   shortcuts: Record<string, string>;
   uploadCommand: string;
   downloadCommand: string;
+  /** 右侧停靠区（主机监控 / 主机 AI / 文件管理）的统一面板宽度。 */
   aiPanelWidth: number;
   sidebarHidden: boolean;
   theme: "dark" | "light" | "system";

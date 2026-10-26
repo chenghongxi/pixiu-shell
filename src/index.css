@@ -1627,9 +1627,8 @@
   width: 12px;
 }
 .file-panel {
-  width: 350px;
-  min-width: 300px;
-  flex-shrink: 0;
+  /* 宽度由 .panel-dock 统一给出，和 AI／监控面板保持一致。 */
+  min-width: 0;
   border-left: 0;
   background: var(--background);
   display: flex;
@@ -1639,7 +1638,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 38px;
+  /* 与会话标签行同高，标题才对得齐。 */
+  height: 34px;
   padding: 0 9px 0 13px;
   border-bottom: 0;
   background: var(--toolbar);
@@ -1802,14 +1802,6 @@
 @media (max-width: 1150px) {
   .sidebar {
     width: 215px;
-  }
-  .file-panel {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 350px;
-    box-shadow: var(--shadow);
   }
   .palette-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -2193,9 +2185,8 @@ body,
 }
 
 .ai-panels {
-  width: 400px;
-  min-width: 320px;
-  flex-shrink: 0;
+  /* 宽度同样交给 .panel-dock，面板之间不允许出现宽度差。 */
+  min-width: 0;
   border-left: 0;
   background: var(--background);
   min-height: 0;
@@ -2386,16 +2377,6 @@ body,
   background: var(--active);
   color: var(--primary);
 }
-@media (max-width: 1150px) {
-  .ai-panels {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: min(400px, 90%);
-    box-shadow: var(--shadow);
-  }
-}
 
 /* Stable terminal cells: splitting changes bounds, never the mounted terminal. */
 .session-view[data-split="true"] {
@@ -2506,14 +2487,10 @@ body,
 }
 .ai-panels {
   position: relative;
-  top: auto;
-  right: auto;
-  bottom: auto;
-  max-width: calc(100% - 240px);
-  min-width: 280px;
+  min-width: 0;
   box-shadow: none;
 }
-.ai-panels > .resize-handle {
+.panel-dock > .resize-handle {
   top: 0;
   bottom: 0;
   left: -3px;
@@ -2888,7 +2865,7 @@ body,
   border-bottom: 0;
 }
 
-.ai-panels > .resize-handle {
+.panel-dock > .resize-handle {
   z-index: 2;
 }
 
@@ -5380,10 +5357,51 @@ body .host-search-dialog > .host-search-results {
 .workspace {
   background: transparent;
 }
+/* 标签栏与右侧面板标题并入同一行：会话标签行占第一行，面板纵向跨两行。 */
 .session-layout {
+  display: grid;
+  /* 右侧只留一列给面板停靠区：面板永远贴住窗口右缘，不会留下空轨道。 */
+  grid-template-columns: minmax(240px, 1fr) minmax(0, max-content);
+  grid-template-rows: 34px minmax(0, 1fr);
   background: var(--gutter);
-  padding: 4px 6px 6px;
+  padding: 0 6px 6px;
+}
+.session-layout > .session-tabrow {
+  grid-area: 1 / 1;
+}
+.session-layout > .session-content {
+  grid-area: 2 / 1;
+}
+.session-layout > .panel-dock {
+  grid-area: 1 / 2 / -1 / -1;
+  margin-left: 6px;
+}
+/* 停靠区：主机监控、主机 AI、文件管理共用 --panel-w，宽度天然一致。 */
+.panel-dock {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
+}
+.panel-dock > .ai-panels,
+.panel-dock > .file-panel {
+  flex: 0 1 var(--panel-w, 400px);
+  width: var(--panel-w, 400px);
+  min-width: 0;
+}
+/* 窄窗口让停靠区浮在终端之上；grid-area 必须置回 auto，否则绝对定位的包含块会是 0 宽的网格轨道。 */
+@media (max-width: 1150px) {
+  .session-layout > .panel-dock {
+    position: absolute;
+    grid-area: auto;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    max-width: 100%;
+    box-shadow: var(--shadow);
+  }
 }
 .session-content {
   background: transparent;
