@@ -10,6 +10,13 @@ export interface MetricSeries {
   dashed?: boolean;
 }
 
+/** Dashed series repeat their colour so the swatch matches the curve. */
+function swatch(item: MetricSeries) {
+  return item.dashed
+    ? `repeating-linear-gradient(90deg, var(${item.color}) 0 3px, transparent 3px 6px)`
+    : `var(${item.color})`;
+}
+
 /**
  * Lightweight SVG line chart shaped after the Pixiu console metric panels:
  * bordered card, small title, smooth line with a fading area and a hover cursor.
@@ -232,13 +239,7 @@ export function MetricChart({
             <span className="metric-card__tooltip-time">{labels[hovered] ?? ""}</span>
             {series.map((item) => (
               <span key={item.name} className="metric-card__tooltip-row">
-                <i
-                  style={{
-                    background: item.dashed
-                      ? `repeating-linear-gradient(90deg, var(${item.color}) 0 3px, transparent 3px 6px)`
-                      : `var(${item.color})`,
-                  }}
-                />
+                <i style={{ background: swatch(item) }} />
                 {item.name}
                 <b>{`${formatValue(item.values[hovered] ?? 0)}${unit}`}</b>
               </span>

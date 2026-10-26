@@ -69,7 +69,14 @@ export function HostMonitor({
   const labels = samples.map((sample) => clock(sample.at));
   const percent = (used: number, total: number) =>
     total > 0 ? Math.min(100, (used / total) * 100) : 0;
-  const network = networkScale(samples);
+  const network = rateScale(samples, (metrics) => [
+    metrics.netRxBytesPerSec,
+    metrics.netTxBytesPerSec,
+  ]);
+  const disk = rateScale(samples, (metrics) => [
+    metrics.diskReadBytesPerSec,
+    metrics.diskWriteBytesPerSec,
+  ]);
   return (
     <section className="ai-panel monitor-panel" hidden={!visible}>
       <header>
@@ -159,14 +166,54 @@ export function HostMonitor({
           ]}
         />
         <MetricChart
+          title={`磁盘 IO（${disk.unit}）`}
+          unit={disk.unit}
+          labels={labels}
+          tickFormat={disk.tick}
+          series={[
+            {
+              name: "读取",
+              color: "--chart-blue",
+              values: samples.map((sample) =>
+                disk.convert(sample.metrics.diskReadBytesPerSec),
+              ),
+            },
+            {
+              name: "写入",
+              color: "--chart-blue",
+              dashed: true,
+              values: samples.map((sample) =>
+                disk.convert(sample.metrics.diskWriteBytesPerSec),
+              ),
+            },
+          ]}
+        />
+        <MetricChart
+          title="TCP 连接数"
+          unit="个"
+          labels={labels}
+          series={[
+            {
+              name: "已建立",
+              color: "--chart-blue",
+              values: samples.map((sample) => sample.metrics.tcpEstablished),
+            },
+            {
+              name: "TIME_WAIT",
+              color: "--tone-amber",
+              values: samples.map((sample) => sample.metrics.tcpTimeWait),
+            },
+            {
+              name: "CLOSE_WAIT",
+              color: "--tone-teal",
+              values: samples.map((sample) => sample.metrics.tcpCloseWait),
+            },
+          ]}
+        />
+        <MetricChart
           title={`网络速率（${network.unit}）`}
           unit={network.unit}
           labels={labels}
-          note={
-            latest
-              ? `↓ ${network.format(latest.netRxBytesPerSec)} ↑ ${network.format(latest.netTxBytesPerSec)}`
-              : undefined
-          }
           tickFormat={network.tick}
           series={[
             {
@@ -221,13 +268,13 @@ function gib(usedKb: number, totalKb: number) {
   return `${toGib(usedKb).toFixed(1)} / ${toGib(totalKb).toFixed(1)} GB`;
 }
 /** Keeps one unit for the whole card so the axis stays readable. */
-function networkScale(samples: Sample[]) {
+function rateScale(
+  samples: Sample[],
+  values: (metrics: HostMetrics) => number[],
+) {
   const peak = Math.max(
     0,
-    ...samples.flatMap((sample) => [
-      sample.metrics.netRxBytesPerSec,
-      sample.metrics.netTxBytesPerSec,
-    ]),
+    ...samples.flatMap((sample) => values(sample.metrics)),
   );
   if (peak >= 1024 * 1024) {
     return {

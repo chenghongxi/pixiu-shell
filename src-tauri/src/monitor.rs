@@ -17,20 +17,33 @@ n() { awk 'NR>2{gsub(/:/,""); if($1!="lo"){r+=$2; t+=$10}} END{printf "%d %d", r
 m() { awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} /^Buffers:/{b=$2} /^Cached:/{c=$2} END{printf "%d %d %d", t+0, (t-a)+0, a+0}' /proc/meminfo; }
 s() { awk '/^SwapTotal:/{t=$2} /^SwapFree:/{f=$2} END{printf "%d %d", t+0, (t-f)+0}' /proc/meminfo; }
 d() { df -Pk 2>/dev/null | awk 'NR>1 {if($1 ~ /^\/dev\//){t+=$2; u+=$3; f=1} else if(!f && $6=="/"){t=$2; u=$3}} END{printf "%d %d", t+0, u+0}'; }
-a=$(c); b=$(n); sleep 1; a2=$(c); b2=$(n)
-set -- $a $a2 $b $b2
+# Whole disks only: partitions repeat their parent's counters, and loop/ram/sr
+# devices are not real IO. Columns 6 and 10 are sectors read and written,
+# and a sector is 512 bytes.
+i() { awk '$3 ~ /^(sd|vd|xvd|hd)[a-z]+$/ || $3 ~ /^nvme[0-9]+n[0-9]+$/ {r+=$6; w+=$10} END{printf "%d %d", r*512, w*512}' /proc/diskstats 2>/dev/null || printf "0 0"; }
+# /proc/net/tcp6 is absent when IPv6 is disabled, so cat feeds awk whatever
+# exists. Column 4 is the two-digit hex state, which also filters both headers.
+t() { cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$4 ~ /^[0-9A-Fa-f][0-9A-Fa-f]$/ {c[$4]++} END{n=0; for(k in c) n+=c[k]; printf "%d %d %d %d %d", c["01"]+0, c["06"]+0, c["08"]+0, c["0A"]+0, n-c["0A"]+0}'; }
+a=$(c); b=$(n); e=$(i); sleep 1; a2=$(c); b2=$(n); e2=$(i)
+set -- $a $a2 $b $b2 $e $e2 $(t)
 dt=$(( $3 - $1 )); di=$(( $4 - $2 ))
 cpu=$(awk -v dt="$dt" -v di="$di" 'BEGIN{if(dt<=0){print 0} else {printf "%.1f", (dt-di)*100/dt}}')
 rx=$(( $7 - $5 )); tx=$(( $8 - $6 ))
 if [ "$rx" -lt 0 ]; then rx=0; fi
 if [ "$tx" -lt 0 ]; then tx=0; fi
+# Beyond $9 a bare $10 means ${1}0, so the double digits need braces.
+dr=$(( ${11} - ${9} )); dw=$(( ${12} - ${10} ))
+if [ "$dr" -lt 0 ]; then dr=0; fi
+if [ "$dw" -lt 0 ]; then dw=0; fi
+tcpEst=${13}; tcpTw=${14}; tcpCw=${15}; tcpLs=${16}; tcpAll=${17}
 up=$(awk '{printf "%.0f", $1}' /proc/uptime)
 read -r l1 l5 l15 _ < /proc/loadavg
 cores=$(nproc 2>/dev/null)
 if [ -z "$cores" ]; then cores=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null); fi
 case "$cores" in ''|*[!0-9]*|0) cores=1 ;; esac
-printf "uptime=%s load1=%s load5=%s load15=%s cores=%s cpu=%s memTotal=%s memUsed=%s memAvailable=%s swapTotal=%s swapUsed=%s diskTotal=%s diskUsed=%s netRx=%s netTx=%s netRxTotal=%s netTxTotal=%s\n" \
-  "$up" "$l1" "$l5" "$l15" "$cores" "$cpu" $(m) $(s) $(d) "$rx" "$tx" "$7" "$8"
+printf "uptime=%s load1=%s load5=%s load15=%s cores=%s cpu=%s memTotal=%s memUsed=%s memAvailable=%s swapTotal=%s swapUsed=%s diskTotal=%s diskUsed=%s netRx=%s netTx=%s netRxTotal=%s netTxTotal=%s diskRead=%s diskWrite=%s tcpEstablished=%s tcpTimeWait=%s tcpCloseWait=%s tcpListen=%s tcpTotal=%s\n" \
+  "$up" "$l1" "$l5" "$l15" "$cores" "$cpu" $(m) $(s) $(d) "$rx" "$tx" "$7" "$8" \
+  "$dr" "$dw" "$tcpEst" "$tcpTw" "$tcpCw" "$tcpLs" "$tcpAll"
 "#;
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +66,13 @@ pub(crate) struct HostMetrics {
     net_tx_bytes_per_sec: f64,
     net_rx_total_bytes: u64,
     net_tx_total_bytes: u64,
+    disk_read_bytes_per_sec: f64,
+    disk_write_bytes_per_sec: f64,
+    tcp_established: u32,
+    tcp_time_wait: u32,
+    tcp_close_wait: u32,
+    tcp_listen: u32,
+    tcp_total: u32,
 }
 
 pub(crate) struct Probe {
@@ -137,5 +157,12 @@ fn parse(line: &str) -> Result<HostMetrics> {
         net_tx_bytes_per_sec: number("netTx"),
         net_rx_total_bytes: size("netRxTotal"),
         net_tx_total_bytes: size("netTxTotal"),
+        disk_read_bytes_per_sec: number("diskRead"),
+        disk_write_bytes_per_sec: number("diskWrite"),
+        tcp_established: size("tcpEstablished") as u32,
+        tcp_time_wait: size("tcpTimeWait") as u32,
+        tcp_close_wait: size("tcpCloseWait") as u32,
+        tcp_listen: size("tcpListen") as u32,
+        tcp_total: size("tcpTotal") as u32,
     })
 }

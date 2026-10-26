@@ -284,6 +284,13 @@ export interface HostMetrics {
   netTxBytesPerSec: number;
   netRxTotalBytes: number;
   netTxTotalBytes: number;
+  diskReadBytesPerSec: number;
+  diskWriteBytesPerSec: number;
+  tcpEstablished: number;
+  tcpTimeWait: number;
+  tcpCloseWait: number;
+  tcpListen: number;
+  tcpTotal: number;
 }
 export function hostMetrics(hostId: string) {
   return command<HostMetrics>("host_metrics_probe", { hostId });
