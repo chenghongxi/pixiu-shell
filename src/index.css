@@ -4274,8 +4274,8 @@ body,
 .file-toolbar {
   border-bottom: 0;
 }
-.file-toolbar-actions > button:last-child {
-  color: var(--tone-teal);
+.file-toolbar-actions > button svg {
+  color: var(--muted-foreground);
 }
 .file-row {
   --file-color: var(--muted-foreground);
@@ -4315,12 +4315,6 @@ body,
 }
 .file-row[data-kind="folder"] strong {
   color: var(--primary);
-}
-.file-row button[aria-label^="下载"] {
-  color: var(--tone-teal);
-}
-.file-row button[aria-label^="删除"]:hover {
-  color: var(--destructive);
 }
 .file-panel > footer > svg {
   color: var(--tone-teal);
@@ -4602,7 +4596,7 @@ body,
   transform: none;
 }
 .file-row button[aria-label^="下载"] svg {
-  color: var(--tone-teal);
+  color: var(--muted-foreground);
 }
 .file-row button[aria-label^="删除"]:hover svg {
   color: var(--destructive);
