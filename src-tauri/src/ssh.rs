@@ -1,7 +1,7 @@
+use crate::hostkey;
 use crate::storage::LocalHost;
-use anyhow::{Context, Result, bail, ensure};
-use base64::Engine;
-use ssh2::{CheckResult, KnownHostFileKind, MethodType, Session};
+use anyhow::{Context, Result, ensure};
+use ssh2::{MethodType, Session};
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Write};
 use std::path::Path;
@@ -95,43 +95,17 @@ pub(crate) fn connect_session(
     session.set_tcp_stream(socket);
     report(stage, "正在进行 SSH 握手");
     session.handshake().context("SSH 握手失败")?;
-    let (key, key_type) = session.host_key().context("服务器没有主机公钥")?;
-    let mut known = session.known_hosts()?;
-    if known_hosts.exists() {
-        known.read_file(known_hosts, KnownHostFileKind::OpenSSH)?;
-    }
-    match known.check_port(&host.address, host.port, key) {
-        CheckResult::Match => {}
-        CheckResult::NotFound => {
-            let fingerprint = session
-                .host_key_hash(ssh2::HashType::Sha256)
-                .context("无法计算主机指纹")?;
-            let fingerprint = base64::engine::general_purpose::STANDARD_NO_PAD.encode(fingerprint);
-            let message = format!(
-                "{}:{}\nSHA256:{}\n\n请通过可信渠道核对该指纹后确认。",
-                host.address, host.port, fingerprint
-            );
-            ensure!(
-                rfd::MessageDialog::new()
-                    .set_title("Pixiu Shell · 验证 SSH 主机指纹")
-                    .set_description(message)
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show()
-                    == rfd::MessageDialogResult::Yes,
-                "已取消主机指纹确认"
-            );
-            let hostname = if host.port == 22 {
-                host.address.to_string()
-            } else {
-                format!("[{}]:{}", host.address, host.port)
-            };
-            known.add(&hostname, key, "PIXIU_SHELL", key_type.into())?;
-            known.write_file(known_hosts, KnownHostFileKind::OpenSSH)?;
-        }
-        CheckResult::Mismatch => bail!("SSH 主机指纹已改变，连接已拒绝。请先确认服务器身份。"),
-        CheckResult::Failure => bail!("无法核验 SSH 主机指纹"),
-    }
+    let (key, raw_key_type) = session.host_key().context("服务器没有主机公钥")?;
     report(stage, "正在校验主机指纹");
+    hostkey::verify(
+        &session,
+        known_hosts,
+        &host.address,
+        host.port,
+        key,
+        raw_key_type,
+    )
+    .context("无法核验主机指纹")?;
     let stored_password = if host.has_password && supplied_password.is_none() {
         crate::credentials::read(host.id.context("主机缺少 ID")?)?
     } else {

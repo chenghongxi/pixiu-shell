@@ -1,11 +1,13 @@
 //! Pixiu Shell desktop boundary: platform credentials stay native; local hosts stay in SQLite.
 
 mod ai;
+mod askpass_bridge;
 mod auth_store;
 mod commands;
 mod credentials;
 mod dingtalk;
 mod files;
+mod hostkey;
 mod migrate;
 mod monitor;
 mod platform;
@@ -428,6 +430,9 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 transfer_cancels: Mutex::new(std::collections::HashMap::new()),
                 monitor_sessions: Mutex::new(std::collections::HashMap::new()),
             });
+            // Connections can ask the user to verify a fingerprint, and they
+            // must be able to do it before the first window is even rendered.
+            hostkey::attach(app.handle().clone());
             Ok(())
         })
         .invoke_handler(|invoke| {
@@ -481,7 +486,8 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 terminal_open,
                 terminal_input,
                 rdp_input,
-                terminal_close
+                terminal_close,
+                hostkey::host_key_answer
             ];
             handler(invoke)
         })

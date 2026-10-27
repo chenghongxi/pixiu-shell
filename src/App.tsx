@@ -1,4 +1,5 @@
 import { ScreenLock } from "@/components/ScreenLock";
+import { HostKeyPrompt } from "@/components/HostKeyPrompt";
 import { effectiveShortcuts, shortcutMatches } from "@/lib/shortcuts";
 import type { LockStatus } from "@/lib/api";
 import { applyWindowOpacity, GRAPHITE_BACKGROUND } from "@/lib/themes";
@@ -2306,6 +2307,7 @@ export default function App() {
           onSaved={() => void refreshLocal()}
         />
       ) : null}
+      <HostKeyPrompt />
       {lockStatus.locked ? (
         <ScreenLock onUnlocked={() => void unlockWorkspace()} />
       ) : null}

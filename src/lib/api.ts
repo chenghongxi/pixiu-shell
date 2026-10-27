@@ -384,3 +384,23 @@ export function platformGroupPaths(nodes: HostNode[]): Map<string, string> {
   }
   return paths;
 }
+
+/** 后端在 SSH 握手中遇到未知/变化的主机公钥时抛给窗口的确认请求。 */
+export interface HostKeyRequest {
+  id: string;
+  /** `prompt` is OpenSSH's own wording, used when it could not be parsed. */
+  kind: "new" | "changed" | "prompt";
+  address: string;
+  port: number;
+  keyType: string;
+  fingerprint: string;
+  stored?: string | null;
+  prompt?: string | null;
+  /** OpenSSH always stores the key it accepted, so it cannot offer "once". */
+  supportsOnce?: boolean;
+}
+export const HOST_KEY_PROMPT_EVENT = "host-key-verify";
+export const HOST_KEY_RESOLVED_EVENT = "host-key-resolved";
+export function answerHostKey(id: string, accept: boolean, remember = true) {
+  return command<void>("host_key_answer", { id, accept, remember });
+}

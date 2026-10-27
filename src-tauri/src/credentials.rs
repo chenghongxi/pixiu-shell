@@ -1,6 +1,12 @@
 use anyhow::{Context, Result, ensure};
+use std::io::Write;
+use std::time::Duration;
 use uuid::Uuid;
 use zeroize::Zeroizing;
+
+/// The window answers a prompt on human time, so the helper has to wait far
+/// longer than any network round trip would.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(300);
 
 fn entry(id: Uuid) -> Result<keyring::Entry> {
     keyring::Entry::new(crate::auth_store::SSH_SERVICE, &id.to_string())
@@ -69,17 +75,16 @@ pub(crate) fn delete(id: Uuid) -> Result<()> {
 
 // Invoked only by OpenSSH as a helper; passwords never appear in argv or environment.
 pub fn askpass() -> Result<()> {
-    use std::io::Write;
-    let prompt = std::env::args().nth(1).unwrap_or_default();
+    // OpenSSH may split the question into several argv words.
+    let prompt = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
     if std::env::var("SSH_ASKPASS_PROMPT").as_deref() == Ok("confirm") || prompt.contains("yes/no")
     {
-        let accepted = rfd::MessageDialog::new()
-            .set_title("Pixiu Shell · 验证 SSH 主机指纹")
-            .set_description(&prompt)
-            .set_buttons(rfd::MessageButtons::YesNo)
-            .show()
-            == rfd::MessageDialogResult::Yes;
-        std::io::stdout().write_all(if accepted { b"yes\n" } else { b"no\n" })?;
+        let answer = if confirm_host_key(&prompt) {
+            "yes\n"
+        } else {
+            "no\n"
+        };
+        std::io::stdout().write_all(answer.as_bytes())?;
         return Ok(());
     }
     let normalized = prompt.to_ascii_lowercase();
@@ -92,6 +97,37 @@ pub fn askpass() -> Result<()> {
     std::io::stdout().write_all(password.as_bytes())?;
     std::io::stdout().write_all(b"\n")?;
     Ok(())
+}
+
+/// The helper is another process with no window of its own, so it dials back to
+/// the loopback bridge and lets the app ask. There is no second path: a prompt
+/// that cannot be shown must not be guessed at, so the answer becomes "no".
+fn confirm_host_key(prompt: &str) -> bool {
+    match ask_window(prompt) {
+        Some(accepted) => accepted,
+        None => {
+            // OpenSSH only reads the helper's stdout, so anything written here
+            // lands in the terminal and explains the refusal.
+            eprintln!("pixiu-shell: 无法显示指纹确认窗口，已拒绝连接该主机");
+            false
+        }
+    }
+}
+
+fn ask_window(prompt: &str) -> Option<bool> {
+    use std::io::{BufRead, BufReader};
+    let address = std::env::var(crate::askpass_bridge::ADDR_ENV).ok()?;
+    let token = std::env::var(crate::askpass_bridge::TOKEN_ENV).ok()?;
+    let stream = std::net::TcpStream::connect(address).ok()?;
+    // The reply takes as long as the prompt does, plus the walk to the console.
+    stream.set_read_timeout(Some(REPLY_TIMEOUT)).ok()?;
+    let payload = serde_json::json!({ "token": token, "prompt": prompt });
+    let mut writer = stream.try_clone().ok()?;
+    writer.write_all(payload.to_string().as_bytes()).ok()?;
+    writer.write_all(b"\n").ok()?;
+    let mut reply = String::new();
+    BufReader::new(stream).read_line(&mut reply).ok()?;
+    Some(reply.trim().eq_ignore_ascii_case("yes"))
 }
 
 #[cfg(test)]

@@ -445,6 +445,15 @@ impl Sessions {
         ]);
         command.arg("-o");
         command.arg(format!("UserKnownHostsFile=\"{}\"", known_hosts.display()));
+        // An empty global file keeps system-wide pins out of the lookup.
+        // OpenSSH accepts an exact match from *any* trust file, so a stale
+        // administrator entry could otherwise override the key recorded here.
+        let empty = known_hosts.with_file_name("known_hosts.empty");
+        if !empty.exists() {
+            let _ = std::fs::write(&empty, "");
+        }
+        command.arg("-o");
+        command.arg(format!("GlobalKnownHostsFile=\"{}\"", empty.display()));
         if let Some(proxy) = &host.proxy {
             let executable = std::env::current_exe()?.to_string_lossy().into_owned();
             let quoted = if cfg!(windows) {
@@ -493,6 +502,14 @@ impl Sessions {
             command.env("PIXIU_SHELL_ASKPASS", "1");
             command.env("PIXIU_SHELL_CREDENTIAL_ID", id.to_string());
             command.env("DISPLAY", "pixiu-shell:0");
+            // The helper is a separate process with no access to Tauri, so it
+            // dials back here to raise the in-app prompt. Failing to bind is
+            // worth failing the connection for: without the bridge the helper
+            // can only refuse, and the user would then be left with OpenSSH's
+            // bare "verification failed" instead of the real cause.
+            let (address, token) = crate::askpass_bridge::start()?;
+            command.env(crate::askpass_bridge::ADDR_ENV, address);
+            command.env(crate::askpass_bridge::TOKEN_ENV, token);
         }
         command.arg("--");
         command.arg(host.address);

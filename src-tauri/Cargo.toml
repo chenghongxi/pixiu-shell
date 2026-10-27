@@ -29,6 +29,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 ssh2 = "0.9"
 rfd = "0.15"
 base64 = "0.22"
+sha2 = "0.10"
 zeroize = "1"
 
 tempfile = "3"
