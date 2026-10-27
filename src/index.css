@@ -578,6 +578,21 @@
   width: 25px;
   opacity: 0.5;
 }
+/* 页头按钮收紧到 32px/13px：默认 36px/14px 在以 11~13px 为主的页头里过于抢眼。 */
+.page-title [data-slot="button"] {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.page-title [data-slot="button"] svg {
+  width: 14px;
+  height: 14px;
+}
+/* 已选中主机时页头按钮降级为描边，把主行动作让给卡内的「连接主机」；图标保留主色。 */
+.page-title [data-slot="button"][data-variant="outline"] svg {
+  color: var(--primary);
+}
+
 /* ── 按钮统一为 pixiu-ui（Element Plus）风格 ── */
 :root {
   --btn-tint: #ffffff;
@@ -947,14 +962,36 @@
   gap: 25px 15px;
   margin: 28px 0;
 }
+/* 汉字字面高≈字号、数字只有约 0.85 倍，所以标签必须比数值更淡，
+   数值再加大一档，层级才不会看起来反过来。 */
 .connection-detail dt {
-  color: var(--muted-foreground);
+  color: color-mix(in srgb, var(--muted-foreground) 85%, transparent);
   font-size: 10px;
+  letter-spacing: 0.03em;
   margin-bottom: 7px;
 }
 .connection-detail dd {
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   overflow-wrap: anywhere;
+}
+.connection-detail dd.mono {
+  font-family: Menlo, Consolas, "Cascadia Mono", monospace;
+  letter-spacing: -0.01em;
+}
+/* 动作行与页头按钮同尺寸，卡片里不会出现比页头更粗的按钮。 */
+.detail-actions {
+  display: flex;
+  gap: 8px;
+}
+.detail-actions [data-slot="button"] {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.detail-actions [data-slot="button"] svg {
+  width: 14px;
+  height: 14px;
 }
 .host-detail-extra {
   display: grid;
@@ -3711,11 +3748,17 @@ body,
 .ai-panel > header {
   background: color-mix(in srgb, var(--tone-violet) 7%, var(--toolbar));
 }
-.ai-panel > header svg,
-.window-actions button[aria-label="主机 AI"] svg {
+.ai-panel > header svg {
   color: var(--tone-violet);
 }
+/* 工具栏功能图标用中性色，和左侧配置中心按钮（.activity-rail button）保持一致。 */
+.window-actions button[aria-label="主机 AI"] svg,
 .window-actions button[aria-label="文件"] svg {
+  color: var(--muted-foreground);
+}
+/* 面板打开时和配置中心一样切成主色。 */
+.window-actions button[aria-label="主机 AI"][data-active="true"] svg,
+.window-actions button[aria-label="文件"][data-active="true"] svg {
   color: var(--primary);
 }
 .script-code-editor > div > span {

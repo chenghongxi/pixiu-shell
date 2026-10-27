@@ -1128,6 +1128,7 @@ export default function App() {
                   variant="ghost"
                   aria-label="文件"
                   title="文件管理"
+                  data-active={!!fileTarget}
                   disabled={
                     activeSession?.target.mode === "shell" ||
                     (!activeSession && !selected) ||
@@ -1550,13 +1551,17 @@ export default function App() {
                       </p>
                     </div>
                     {mode === "local" ? (
-                      <Button onClick={() => settings("hosts", true)}>
+                      <Button
+                        variant={selected ? "outline" : "default"}
+                        onClick={() => settings("hosts", true)}
+                      >
                         <ServerPlus data-icon="inline-start" />
                         添加本地主机
                       </Button>
                     ) : (
                       <Button
                         size="sm"
+                        variant={selected ? "outline" : "default"}
                         onClick={() =>
                           user ? void refreshPlatform() : login()
                         }
@@ -1582,11 +1587,13 @@ export default function App() {
                         <dl>
                           <div>
                             <dt>登录 IP</dt>
-                            <dd>{selected.address || "平台解析"}</dd>
+                            <dd className="mono">
+                              {selected.address || "平台解析"}
+                            </dd>
                           </div>
                           <div>
                             <dt>端口</dt>
-                            <dd>{selected.port}</dd>
+                            <dd className="mono">{selected.port}</dd>
                           </div>
                           <div>
                             <dt>用户名</dt>
@@ -1612,13 +1619,15 @@ export default function App() {
                           </div>
                           <div>
                             <dt>隧道</dt>
-                            <dd>{selected.local?.tunnels.length || 0} 条</dd>
+                            <dd className="mono">
+                              {selected.local?.tunnels.length || 0} 条
+                            </dd>
                           </div>
                         </dl>
                         {selected.local?.note ? (
                           <p className="detail-note">{selected.local.note}</p>
                         ) : null}
-                        <div className="flex gap-2">
+                        <div className="detail-actions">
                           <Button
                             disabled={connecting}
                             onClick={() => void connect(selected)}
