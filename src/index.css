@@ -5814,101 +5814,104 @@ body .host-search-dialog > .host-search-results {
   margin-left: auto;
   font-weight: 600;
 }
-/* 指纹确认弹窗：指纹是一整串 base64，窄弹窗里换行会让人核对串行，所以加宽。 */
+/* 指纹确认弹窗：沿用 pixiu-ui 弹窗的骨架——标题 / 内容 / 按钮三段，
+   段间 1px 分隔线，按钮 32px、13px 字。 */
 .host-key-dialog[data-slot="dialog-content"] {
-  width: min(484px, calc(100vw - 32px));
+  width: min(480px, calc(100vw - 32px));
   max-width: none;
-  gap: 12px;
-  padding: 20px 20px 18px;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+}
+.host-key-header {
+  gap: 0;
+  padding: 15px 44px 13px 20px;
+  border-bottom: 1px solid var(--border);
 }
 .host-key-dialog [data-slot="dialog-title"] {
   font-size: 15px;
-  line-height: 1.3;
+  font-weight: 600;
+  line-height: 1.4;
 }
-.host-key-dialog [data-slot="dialog-description"] {
-  max-width: 100%;
-  font-size: 12px;
-  line-height: 1.5;
+.host-key-dialog [data-slot="dialog-close"] {
+  top: 13px;
+  right: 14px;
+  color: var(--muted-foreground);
+  transition:
+    color 0.12s ease,
+    opacity 0.12s ease;
 }
-.host-key-head {
+.host-key-dialog [data-slot="dialog-close"]:hover {
+  color: var(--foreground);
+}
+.host-key-dialog [data-slot="dialog-close"] svg {
+  width: 15px;
+  height: 15px;
+}
+.host-key-body {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 12px;
+  padding: 16px 20px 18px;
 }
-.host-key-icon {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--primary) 11%, transparent);
-  color: var(--primary);
-}
-.host-key-icon[data-kind="changed"] {
-  background: color-mix(in srgb, var(--destructive) 11%, transparent);
-  color: var(--destructive);
-}
-.host-key-icon svg {
-  width: 17px;
-  height: 17px;
-}
-.host-key-titles {
-  gap: 4px;
-  padding-top: 1px;
-}
-/* 主机信息条：地址等宽突出，公钥类型退为次要信息 */
+/* 目标主机：地址放进小胶囊，与 pixiu-ui 确认弹窗里的目标名同一写法 */
 .host-key-target {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 11px;
-  border-radius: 6px;
-  background: var(--secondary-solid);
-  color: var(--secondary-foreground);
+  gap: 8px;
+  color: var(--muted-foreground);
   font-size: 12px;
 }
-.host-key-target b {
+.host-key-target code {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--secondary-solid);
   color: var(--foreground);
   font-family: Menlo, Consolas, "Cascadia Mono", monospace;
   font-size: 12.5px;
   font-weight: 600;
 }
-.host-key-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.45;
+/* 指纹变化：中性面板 + 红色图标，避免整块泛红抢视觉 */
+.host-key-warning {
+  display: flex;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
 }
-.host-key-dialog [data-slot="alert"] {
-  align-items: center;
-  gap: 4px 10px;
-  padding: 9px 11px;
+.host-key-warning > svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--destructive);
 }
-.host-key-dialog [data-slot="alert"] > svg {
-  width: 15px;
-  height: 15px;
+.host-key-warning b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
 }
-.host-key-dialog [data-slot="alert-title"] {
+.host-key-warning p {
+  margin: 2px 0 0;
+  color: var(--muted-foreground);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.55;
 }
-.host-key-dialog [data-slot="alert-description"] {
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-/* 指纹卡片：左对齐等宽，单击即可整串选中 */
+/* 指纹卡：淡底 + 1px 描边，不再靠实色块区分层级 */
 .host-key-card {
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-solid);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--foreground) 3%, transparent);
 }
 .host-key-fact {
-  display: grid;
-  gap: 6px;
-  padding: 9px 11px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
 }
 .host-key-fact + .host-key-fact {
   border-top: 1px solid var(--border);
@@ -5919,12 +5922,12 @@ body .host-search-dialog > .host-search-results {
   letter-spacing: 0.03em;
 }
 .host-key-fact[data-muted="true"] .host-key-fact__label {
-  color: color-mix(in srgb, var(--destructive) 55%, var(--muted-foreground));
+  color: color-mix(in srgb, var(--destructive) 70%, var(--muted-foreground));
 }
 .host-key-fact__value {
   color: var(--foreground);
   font-family: Menlo, Consolas, "Cascadia Mono", monospace;
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.45;
   letter-spacing: -0.01em;
   word-break: break-all;
@@ -5971,11 +5974,11 @@ body .host-search-dialog > .host-search-results {
 .host-key-raw {
   max-height: 220px;
   margin: 0;
-  padding: 10px 11px;
+  padding: 10px 12px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-solid);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--foreground) 3%, transparent);
   color: var(--secondary-foreground);
   font-family: Menlo, Consolas, "Cascadia Mono", monospace;
   font-size: 11.5px;
@@ -5985,10 +5988,12 @@ body .host-search-dialog > .host-search-results {
 }
 .host-key-footer {
   gap: 8px;
-  margin-top: 2px;
+  padding: 14px 20px 16px;
+  border-top: 1px solid var(--border);
 }
 .host-key-footer [data-slot="button"] {
   height: 32px;
+  min-width: 76px;
   padding: 0 14px;
   font-size: 13px;
 }

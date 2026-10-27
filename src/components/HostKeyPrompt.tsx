@@ -1,12 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import {
-  Check,
-  Copy,
-  Fingerprint,
-  ShieldAlert,
-  ShieldCheck,
-} from "lucide-react";
+import { Check, Copy, ShieldAlert } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -16,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import {
   HOST_KEY_PROMPT_EVENT,
   HOST_KEY_RESOLVED_EVENT,
@@ -25,34 +18,31 @@ import {
   type HostKeyRequest,
 } from "@/lib/api";
 
-/** 三种询问的文案与图标，差异集中在这里，渲染处不再逐个判断 kind。 */
+/** 三种询问的文案，差异集中在这里，渲染处不再逐个判断 kind。 */
 const PRESENTATION: Record<
   HostKeyRequest["kind"],
   {
-    icon: ReactNode;
     title: string;
+    /** 只给读屏软件，界面上不再显示。 */
     description: string;
     accept: string;
     dismiss: string;
   }
 > = {
   new: {
-    icon: <ShieldCheck />,
-    title: "验证 SSH 主机指纹",
-    description: "首次连接该主机，先核对指纹是否一致。",
+    title: "主机指纹",
+    description: "首次连接该主机，先核对指纹是否与服务器一致。",
     accept: "信任并记住",
     dismiss: "取消",
   },
   changed: {
-    icon: <ShieldAlert />,
     title: "主机指纹已变化",
     description: "本机记录的指纹与服务器返回的不一致，确认无误后再继续。",
     accept: "更新并记住",
     dismiss: "拒绝连接",
   },
   prompt: {
-    icon: <Fingerprint />,
-    title: "验证 SSH 主机指纹",
+    title: "主机指纹",
     description: "系统 SSH 引擎提出了确认请求，请核对后决定。",
     accept: "信任并记住",
     dismiss: "取消",
@@ -166,63 +156,54 @@ export function HostKeyPrompt() {
         if (!open) reject();
       }}
     >
-      <DialogContent
-        key={current.id}
-        className="host-key-dialog"
-        showCloseButton={false}
-      >
-        <div className="host-key-head">
-          <span className="host-key-icon" data-kind={current.kind}>
-            {view.icon}
-          </span>
-          <DialogHeader className="host-key-titles">
-            <DialogTitle>{view.title}</DialogTitle>
-            <DialogDescription>{view.description}</DialogDescription>
-          </DialogHeader>
-        </div>
-        {raw ? (
-          <pre className="host-key-raw">{current.prompt}</pre>
-        ) : (
-          <>
-            <div className="host-key-target">
-              <b>{target}</b>
-              {current.keyType ? (
-                <>
-                  <i className="host-key-dot" />
-                  <span>{current.keyType}</span>
-                </>
+      <DialogContent key={current.id} className="host-key-dialog">
+        <DialogHeader className="host-key-header">
+          <DialogTitle>{view.title}</DialogTitle>
+        </DialogHeader>
+        <div className="host-key-body">
+          {/* 说明文字只留给读屏软件，界面上靠标题和指纹本身表达。 */}
+          <DialogDescription className="sr-only">
+            {view.description}
+          </DialogDescription>
+          {raw ? (
+            <pre className="host-key-raw">{current.prompt}</pre>
+          ) : (
+            <>
+              <div className="host-key-target">
+                <code>{target}</code>
+                {current.keyType ? <span>{current.keyType}</span> : null}
+              </div>
+              {changed ? (
+                <div className="host-key-warning">
+                  <ShieldAlert />
+                  <div>
+                    <b>指纹变化也可能是中间人攻击</b>
+                    <p>服务器重装或更换过密钥会这样，被劫持也会这样。</p>
+                  </div>
+                </div>
               ) : null}
-            </div>
-            {changed ? (
-              <Alert variant="destructive">
-                <ShieldAlert />
-                <AlertTitle>指纹变化也可能是中间人攻击</AlertTitle>
-                <AlertDescription>
-                  服务器重装或更换过密钥会这样，被劫持也会这样。
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            <div className="host-key-card">
-              <FingerprintFact
-                label={changed ? "服务器当前指纹" : "服务器指纹"}
-                value={current.fingerprint}
-                copied={copied === "current"}
-                onCopy={() =>
-                  void copyFingerprint("current", current.fingerprint)
-                }
-              />
-              {stored ? (
+              <div className="host-key-card">
                 <FingerprintFact
-                  label="本机已记录的指纹"
-                  value={stored}
-                  muted
-                  copied={copied === "stored"}
-                  onCopy={() => void copyFingerprint("stored", stored)}
+                  label={changed ? "服务器当前指纹" : "服务器指纹"}
+                  value={current.fingerprint}
+                  copied={copied === "current"}
+                  onCopy={() =>
+                    void copyFingerprint("current", current.fingerprint)
+                  }
                 />
-              ) : null}
-            </div>
-          </>
-        )}
+                {stored ? (
+                  <FingerprintFact
+                    label="本机已记录的指纹"
+                    value={stored}
+                    muted
+                    copied={copied === "stored"}
+                    onCopy={() => void copyFingerprint("stored", stored)}
+                  />
+                ) : null}
+              </div>
+            </>
+          )}
+        </div>
         <DialogFooter className="host-key-footer">
           <Button autoFocus variant="outline" onClick={reject}>
             {view.dismiss}
@@ -233,12 +214,8 @@ export function HostKeyPrompt() {
               仅本次信任
             </Button>
           ) : null}
-          <Button
-            variant={changed ? "destructive" : "default"}
-            onClick={remember}
-          >
-            {view.accept}
-          </Button>
+          {/* 危险提示交给上面的面板，主按钮保持主色（pixiu-ui 的危险确认也是蓝按钮）。 */}
+          <Button onClick={remember}>{view.accept}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
