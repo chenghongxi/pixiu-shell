@@ -84,7 +84,6 @@ export function HostEditor({
   const [proxyPassword, setProxyPassword] = useState("");
   const [clearProxyPassword, setClearProxyPassword] = useState(false);
   const [password, setPassword] = useState("");
-  const [clearPassword, setClearPassword] = useState(false);
   const [tags, setTags] = useState(host?.tags?.join(", ") ?? "");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -99,14 +98,13 @@ export function HostEditor({
     draft.proxy,
     password,
     proxyPassword,
-    clearPassword,
     clearProxyPassword,
   ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** 提交过一次后，才对缺失的必填项做字段级标红，避免刚打开就一片红框。 */
   const [fieldErrors, setFieldErrors] = useState(false);
-  const hasSavedPassword = draft.hasPassword && !clearPassword;
+  const hasSavedPassword = draft.hasPassword;
   const missing = {
     name: !draft.name.trim(),
     address: !draft.address.trim(),
@@ -135,7 +133,6 @@ export function HostEditor({
         {
           host: {
             ...draft,
-            hasPassword: clearPassword ? false : draft.hasPassword,
             proxy: draft.proxy
               ? {
                   ...draft.proxy,
@@ -195,7 +192,6 @@ export function HostEditor({
           ],
         },
         password: password || null,
-        clearPassword,
       });
       toast.success("主机配置已保存");
       onSaved();
@@ -331,22 +327,9 @@ export function HostEditor({
                   autoComplete="new-password"
                   placeholder={hasSavedPassword ? "已保存；留空保持原密码" : undefined}
                   aria-invalid={fieldErrors && missing.secret}
-                  disabled={clearPassword}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                 />
-                {draft.hasPassword ? (
-                  <button
-                    type="button"
-                    className="host-link host-form-aside"
-                    onClick={() => {
-                      setClearPassword((value) => !value);
-                      setPassword("");
-                    }}
-                  >
-                    {clearPassword ? "保留已保存密码" : "移除已保存密码"}
-                  </button>
-                ) : null}
               </Row>
             ) : (
               <Row

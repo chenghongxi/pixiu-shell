@@ -25,6 +25,7 @@ import {
   PanelsTopLeft,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Folder,
   FolderOpen,
   LoaderCircle,
@@ -42,12 +43,18 @@ import {
   TerminalSquare,
   X,
   ArrowUpRight,
-  Network,
-  KeyRound,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -66,6 +73,7 @@ import { HostEditor } from "@/components/HostEditor";
 import { Choice } from "@/components/Choice";
 import { PlatformLogin } from "@/components/PlatformLogin";
 import { SettingsPage } from "@/components/SettingsPage";
+import { BatchImportDialog } from "@/components/BatchImportDialog";
 import { FileManager } from "@/components/FileManager";
 import {
   command,
@@ -180,13 +188,24 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [localHosts, setLocalHosts] = useState<LocalHost[]>([]);
   const [hostEditOpen, setHostEditOpen] = useState(false);
+  const [hostCreateOpen, setHostCreateOpen] = useState(false);
   const [platformHosts, setPlatformHosts] = useState<Host[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resourceGroupFilter, setResourceGroupFilter] = useState<string | null>(
     null,
   );
   const [resourcePage, setResourcePage] = useState(1);
-  const resourcePageSize = 10;
+  const [workspaceHostPageSize, setWorkspaceHostPageSize] = useState(10);
+  const [workspaceHostPageJump, setWorkspaceHostPageJump] = useState("1");
+  const [workspaceSelectedHosts, setWorkspaceSelectedHosts] = useState<string[]>([]);
+  const [workspaceCheckingHost, setWorkspaceCheckingHost] = useState<string | null>(null);
+  const [workspaceEditingHost, setWorkspaceEditingHost] = useState<LocalHost | null>(null);
+  const [workspaceMoreOpen, setWorkspaceMoreOpen] = useState<string | null>(null);
+  const [workspaceDeleteHost, setWorkspaceDeleteHost] = useState<LocalHost | null>(null);
+  const [workspaceHostKeyword, setWorkspaceHostKeyword] = useState("");
+  const [workspaceHostNotice, setWorkspaceHostNotice] = useState(true);
+  const [workspaceBatchImportOpen, setWorkspaceBatchImportOpen] = useState(false);
+  const [workspaceTemplateOpen, setWorkspaceTemplateOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(),
   );
@@ -547,6 +566,50 @@ export default function App() {
     setSettingsTab(tab);
     setView("settings");
     if (add) setCreateRequest((value) => value + 1);
+  }
+  async function downloadWorkspaceHostTemplate(format: "excel" | "yaml") {
+    try {
+      const result = await command<{ cancelled: boolean }>(
+        "batch_hosts_template_save",
+        { format },
+      );
+      if (!result.cancelled) {
+        toast.success(`${format === "excel" ? "Excel" : "YAML"} 模板已保存`);
+        setWorkspaceTemplateOpen(false);
+      }
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+  async function testWorkspaceHost(host: LocalHost) {
+    setWorkspaceCheckingHost(host.id);
+    try {
+      const result = await command<{ message: string }>(
+        "local_connectivity_test",
+        {
+          host: { ...host, proxy: host.proxy ?? null },
+          password: null,
+          proxyPassword: null,
+        },
+      );
+      toast.success(`${host.name}：${result.message}`);
+    } catch (error) {
+      toast.error(`${host.name}：${errorMessage(error)}`);
+    } finally {
+      setWorkspaceCheckingHost(null);
+    }
+  }
+  async function deleteWorkspaceHost() {
+    if (!workspaceDeleteHost?.id) return;
+    try {
+      await command("delete_host", { id: workspaceDeleteHost.id });
+      toast.success(`已删除 ${workspaceDeleteHost.name}`);
+      setWorkspaceDeleteHost(null);
+      setWorkspaceMoreOpen(null);
+      await refreshLocal();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
   }
   async function login() {
     if (!preferences.platformAddress) {
@@ -952,14 +1015,37 @@ export default function App() {
             path.startsWith(`${resourceGroupFilter}/`),
         );
   });
+  const normalizedWorkspaceHostKeyword = workspaceHostKeyword.trim().toLowerCase();
+  const workspaceResourceFiltered = resourceFiltered.filter((host) =>
+    !normalizedWorkspaceHostKeyword ||
+    [host.name, host.address, host.group, ...(host.groupPaths ?? [])].some((value) =>
+      value.toLowerCase().includes(normalizedWorkspaceHostKeyword),
+    ),
+  );
   const resourcePageCount = Math.max(
     1,
-    Math.ceil(resourceFiltered.length / resourcePageSize),
+    Math.ceil(workspaceResourceFiltered.length / workspaceHostPageSize),
   );
-  const pagedResources = resourceFiltered.slice(
-    (resourcePage - 1) * resourcePageSize,
-    resourcePage * resourcePageSize,
+  const safeWorkspaceHostPage = Math.min(resourcePage, resourcePageCount);
+  const pagedResources = workspaceResourceFiltered.slice(
+    (safeWorkspaceHostPage - 1) * workspaceHostPageSize,
+    safeWorkspaceHostPage * workspaceHostPageSize,
   );
+  const workspaceHostPageNumbers = Array.from(
+    { length: Math.min(resourcePageCount, 5) },
+    (_, index) => {
+      const first = Math.min(
+        Math.max(1, safeWorkspaceHostPage - 2),
+        Math.max(1, resourcePageCount - 4),
+      );
+      return first + index;
+    },
+  );
+  function goToWorkspaceHostPage(page: number) {
+    const next = Math.min(Math.max(1, page), resourcePageCount);
+    setResourcePage(next);
+    setWorkspaceHostPageJump(String(next));
+  }
   const groups = new Map<string, Host[]>();
   for (const host of filtered) {
     for (const name of preferences.groupBy === "tag"
@@ -1493,8 +1579,14 @@ export default function App() {
             ) : null}
           </div>
           <div className="terminal-workspace" hidden={view !== "workspace"}>
-            <div className="session-layout">
-              <div className="session-tabrow">
+            <div
+              className={cn(
+                "session-layout",
+                !sessions.length && "session-layout--no-tabs",
+              )}
+            >
+              {sessions.length ? (
+                <div className="session-tabrow">
                 <div className="session-bar" ref={sessionBarRef}>
                   {sessions.map((session) => (
                     <div
@@ -1529,16 +1621,13 @@ export default function App() {
                   ))}
                 </div>
                 <div className="session-tabrow-space" data-tauri-drag-region />
-              </div>
+                </div>
+              ) : null}
               <div className="session-content" ref={paneContainer}>
                 <section className="connection-page" hidden={active !== "home"}>
-                  <div className="page-title">
+                  {selected || mode === "platform" ? (
+                    <div className="page-title">
                     <div>
-                      <span className="overline">
-                        {mode === "local"
-                          ? "LOCAL WORKSPACE"
-                          : "PLATFORM WORKSPACE"}
-                      </span>
                       <h1>{selected?.name || "连接管理"}</h1>
                       <p>
                         {selected
@@ -1548,7 +1637,7 @@ export default function App() {
                             : "使用运维平台的身份、资源权限和审计策略。"}
                       </p>
                     </div>
-                    {mode === "local" ? (
+                    {mode === "local" && selected ? (
                       <Button
                         className="host-primary-action"
                         variant="outline"
@@ -1557,7 +1646,7 @@ export default function App() {
                       >
                         新增主机
                       </Button>
-                    ) : (
+                    ) : mode === "platform" ? (
                       <Button
                         size="sm"
                         variant={selected ? "outline" : "default"}
@@ -1568,8 +1657,91 @@ export default function App() {
                         {user ? "同步主机" : "连接运维平台"}
                         <ArrowUpRight data-icon="inline-end" />
                       </Button>
-                    )}
-                  </div>
+                    ) : null}
+                    </div>
+                  ) : null}
+                  {!selected && mode === "local" ? (
+                    <div className="workspace-host-tools">
+                      {workspaceHostNotice ? (
+                        <div className="host-notice">
+                          <svg
+                            className="host-notice__icon"
+                            viewBox="0 0 1024 1024"
+                            aria-hidden="true"
+                          >
+                            <path
+                              fill="currentColor"
+                              d="M512 64a448 448 0 1 1 0 896.064A448 448 0 0 1 512 64m67.2 275.072c33.28 0 60.288-23.104 60.288-57.344s-27.072-57.344-60.288-57.344c-33.28 0-60.16 23.104-60.16 57.344s26.88 57.344 60.16 57.344M590.912 699.2c0-6.848 2.368-24.64 1.024-34.752l-52.608 60.544c-10.88 11.456-24.512 19.392-30.912 17.28a12.99 12.99 0 0 1-8.256-14.72l87.68-276.992c7.168-35.136-12.544-67.2-54.336-71.296-44.096 0-108.992 44.736-148.48 101.504 0 6.784-1.28 23.68.064 33.792l52.544-60.608c10.88-11.328 23.552-19.328 29.952-17.152a12.8 12.8 0 0 1 7.808 16.128L388.48 728.576c-10.048 32.256 8.96 63.872 55.04 71.04 67.84 0 107.904-43.648 147.456-100.416z"
+                            />
+                          </svg>
+                          <span>
+                            管理主机，支持新增、编辑、删除、批量导入节点。节点可用于远程 SSH
+                            连接。
+                          </span>
+                          <button
+                            type="button"
+                            className="host-notice__close"
+                            aria-label="关闭提示"
+                            onClick={() => setWorkspaceHostNotice(false)}
+                          >
+                            <X />
+                          </button>
+                        </div>
+                      ) : null}
+                      <div className="host-toolbar">
+                        <Button
+                          className="host-primary-action"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setHostCreateOpen(true)}
+                        >
+                          新增主机
+                        </Button>
+                        <div className="host-toolbar__right">
+                          <div className="host-toolbar__links">
+                            <button
+                              type="button"
+                              className="host-link"
+                              onClick={() => setWorkspaceTemplateOpen(true)}
+                            >
+                              获取模板
+                            </button>
+                            <button
+                              type="button"
+                              className="host-link"
+                              onClick={() => setWorkspaceBatchImportOpen(true)}
+                            >
+                              批量导入
+                            </button>
+                          </div>
+                          <div className="host-toolbar__fields">
+                            <label className="host-filter">
+                              <Search />
+                              <SearchInput
+                                value={workspaceHostKeyword}
+                                onChange={(event) => {
+                                  setWorkspaceHostKeyword(event.target.value);
+                                  setResourcePage(1);
+                                  setWorkspaceHostPageJump("1");
+                                }}
+                                placeholder="请输入主机名称、IP 或分组"
+                                aria-label="搜索主机"
+                              />
+                            </label>
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label="刷新主机列表"
+                              disabled={loading}
+                              onClick={() => void refreshLocal()}
+                            >
+                              <RefreshCw className={loading ? "animate-spin" : undefined} />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   {selected ? (
                     <>
                       <div className="connection-detail">
@@ -1697,57 +1869,162 @@ export default function App() {
                         <span>SSH / SFTP</span>
                       </div>
                       <div className="data-table-wrap">
-                        <table className="data-table">
+                        <table className="data-table workspace-host-table">
                           <thead>
                             <tr>
-                              <th>主机</th>
-                              <th>地址</th>
+                              <th className="workspace-host-table__check">
+                                <input
+                                  type="checkbox"
+                                  aria-label="全选主机"
+                                  checked={
+                                    workspaceResourceFiltered.length > 0 &&
+                                    workspaceResourceFiltered.every((host) =>
+                                      workspaceSelectedHosts.includes(host.id),
+                                    )
+                                  }
+                                  onChange={(event) =>
+                                    setWorkspaceSelectedHosts(
+                                      event.target.checked
+                                        ? workspaceResourceFiltered.map((host) => host.id)
+                                        : [],
+                                    )
+                                  }
+                                />
+                              </th>
+                              <th>主机名称</th>
+                              <th>IP</th>
+                              <th className="workspace-host-table__port">端口</th>
+                              <th>认证类型</th>
                               <th>分组</th>
-                              <th>连接</th>
+                              <th className="workspace-host-table__actions-head">操作</th>
                             </tr>
                           </thead>
                           <tbody>
                             {pagedResources.map((host) => (
                               <tr
                                 key={host.id}
+                                data-selected={workspaceSelectedHosts.includes(host.id)}
                                 onDoubleClick={() => void connect(host)}
                               >
-                                <td>
-                                  <button
-                                    className="table-host"
-                                    onClick={() => setSelectedId(host.id)}
-                                  >
-                                    <HostOsIcon host={host} />
-                                    {host.name}
-                                  </button>
-                                  <div className="tag-list">
-                                    {host.tags.map((tag) => (
-                                      <Badge key={tag} variant="secondary">
-                                        {tag}
-                                      </Badge>
-                                    ))}
-                                  </div>
+                                <td className="workspace-host-table__check">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`选择 ${host.name}`}
+                                    checked={workspaceSelectedHosts.includes(host.id)}
+                                    onChange={(event) =>
+                                      setWorkspaceSelectedHosts((current) =>
+                                        event.target.checked
+                                          ? [...current, host.id]
+                                          : current.filter((id) => id !== host.id),
+                                      )
+                                    }
+                                  />
                                 </td>
-                                <td className="mono">
-                                  {host.address}:{host.port}
+                                <td className="workspace-host-table__name">
+                                  {host.local ? (
+                                    <button
+                                      type="button"
+                                      className="workspace-host-table__name-link"
+                                      onClick={() =>
+                                        setWorkspaceEditingHost(host.local!)
+                                      }
+                                    >
+                                      {host.name}
+                                    </button>
+                                  ) : (
+                                    host.name
+                                  )}
+                                </td>
+                                <td className="mono">{host.address}</td>
+                                <td className="workspace-host-table__port mono">
+                                  {host.port}
+                                </td>
+                                <td>
+                                  {host.local
+                                    ? host.local.identityFile
+                                      ? "私钥"
+                                      : host.local.hasPassword
+                                        ? "密码"
+                                        : "交互"
+                                    : "平台凭据"}
                                 </td>
                                 <td>{host.group}</td>
                                 <td>
-                                  <Button
-                                    size="icon-sm"
-                                    variant="ghost"
-                                    disabled={connecting}
-                                    aria-label={`连接 ${host.name}`}
-                                    onClick={() => void connect(host)}
-                                  >
-                                    <ArrowUpRight />
-                                  </Button>
+                                  {host.local ? (
+                                    <div className="workspace-host-table__actions">
+                                      <button
+                                        type="button"
+                                        className="host-link"
+                                        disabled={workspaceCheckingHost === host.id}
+                                        onClick={() =>
+                                          void testWorkspaceHost(host.local!)
+                                        }
+                                      >
+                                        {workspaceCheckingHost === host.id
+                                          ? "检测中…"
+                                          : "检测连通性"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="host-link"
+                                        disabled={connecting}
+                                        onClick={() => void connect(host)}
+                                      >
+                                        登录
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="host-link"
+                                        onClick={() => setWorkspaceEditingHost(host.local!)}
+                                      >
+                                        编辑
+                                      </button>
+                                      <div className="workspace-host-more">
+                                        <button
+                                          type="button"
+                                          className="host-link workspace-host-more__trigger"
+                                          aria-haspopup="menu"
+                                          aria-expanded={workspaceMoreOpen === host.id}
+                                          onClick={() =>
+                                            setWorkspaceMoreOpen((current) =>
+                                              current === host.id ? null : host.id,
+                                            )
+                                          }
+                                        >
+                                          更多
+                                          <ChevronDown />
+                                        </button>
+                                        {workspaceMoreOpen === host.id ? (
+                                          <div className="workspace-host-more__menu" role="menu">
+                                            <button
+                                              type="button"
+                                              role="menuitem"
+                                              onClick={() =>
+                                                setWorkspaceDeleteHost(host.local!)
+                                              }
+                                            >
+                                              删除
+                                            </button>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="host-link"
+                                      disabled={connecting}
+                                      onClick={() => void connect(host)}
+                                    >
+                                      登录
+                                    </button>
+                                  )}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
-                        {!resourceFiltered.length ? (
+                        {!workspaceResourceFiltered.length ? (
                           <div className="connection-empty">
                             <TerminalSquare />
                             <h3>
@@ -1775,63 +2052,107 @@ export default function App() {
                             </Button>
                           </div>
                         ) : null}
-                      </div>
-                      {resourceFiltered.length ? (
+                      {workspaceResourceFiltered.length ? (
                         <div
-                          className="resource-page-bar"
+                          className="host-pagination workspace-host-pagination"
                           role="navigation"
                           aria-label="主机列表分页"
                         >
-                          <span>
-                            {resourceGroupFilter
-                              ? `${resourceGroupFilter} · `
-                              : ""}
-                            {resourceFiltered.length} 台主机
+                          <span className="host-pagination__total">
+                            共 {workspaceResourceFiltered.length} 条
                           </span>
                           <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label="上一页主机"
-                            disabled={resourcePage <= 1}
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label="上一页"
+                            disabled={safeWorkspaceHostPage <= 1}
                             onClick={() =>
-                              setResourcePage((value) => value - 1)
+                              goToWorkspaceHostPage(safeWorkspaceHostPage - 1)
                             }
                           >
                             <ChevronLeft />
                           </Button>
-                          <span>
-                            {resourcePage} / {resourcePageCount}
-                          </span>
+                          <div className="host-pagination__pages">
+                            {workspaceHostPageNumbers.map((page) => (
+                              <button
+                                type="button"
+                                key={page}
+                                className="host-pagination__page"
+                                data-active={page === safeWorkspaceHostPage}
+                                aria-current={
+                                  page === safeWorkspaceHostPage
+                                    ? "page"
+                                    : undefined
+                                }
+                                onClick={() => goToWorkspaceHostPage(page)}
+                              >
+                                {page}
+                              </button>
+                            ))}
+                          </div>
                           <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label="下一页主机"
-                            disabled={resourcePage >= resourcePageCount}
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label="下一页"
+                            disabled={safeWorkspaceHostPage >= resourcePageCount}
                             onClick={() =>
-                              setResourcePage((value) => value + 1)
+                              goToWorkspaceHostPage(safeWorkspaceHostPage + 1)
                             }
                           >
                             <ChevronRight />
                           </Button>
+                          <Select
+                            value={String(workspaceHostPageSize)}
+                            onValueChange={(value) => {
+                              setWorkspaceHostPageSize(Number(value));
+                              goToWorkspaceHostPage(1);
+                            }}
+                          >
+                            <SelectTrigger
+                              className="host-pagination__size"
+                              aria-label="每页条数"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="host-pagination__size-content">
+                              {[10, 20, 30, 50, 100].map((size) => (
+                                <SelectItem key={size} value={String(size)}>
+                                  {size}条/页
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <label className="host-pagination__jump">
+                            前往
+                            <SearchInput
+                              inputMode="numeric"
+                              aria-label="跳转页码"
+                              value={workspaceHostPageJump}
+                              onChange={(event) =>
+                                setWorkspaceHostPageJump(
+                                  event.target.value.replace(/[^0-9]/g, ""),
+                                )
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  goToWorkspaceHostPage(
+                                    Number(workspaceHostPageJump) || 1,
+                                  );
+                                }
+                              }}
+                              onBlur={() =>
+                                goToWorkspaceHostPage(
+                                  Number(workspaceHostPageJump) || 1,
+                                )
+                              }
+                            />
+                            页
+                          </label>
                         </div>
                       ) : null}
-                      <div className="workspace-tips">
-                        <span>
-                          <KeyRound />
-                          系统凭据库
-                        </span>
-                        <span>
-                          <Network />
-                          SSH 隧道
-                        </span>
-                        <span>
-                          <FolderOpen />
-                          远程文件
-                        </span>
-                        <button onClick={() => settings("appearance")}>
-                          配置终端配色
-                          <ChevronRight />
-                        </button>
                       </div>
                     </>
                   )}
@@ -2304,6 +2625,86 @@ export default function App() {
           onSaved={() => void refreshLocal()}
         />
       ) : null}
+      {hostCreateOpen ? (
+        <HostEditor
+          onClose={() => setHostCreateOpen(false)}
+          onSaved={() => {
+            setHostCreateOpen(false);
+            void refreshLocal();
+          }}
+        />
+      ) : null}
+      {workspaceEditingHost ? (
+        <HostEditor
+          key={workspaceEditingHost.id}
+          host={workspaceEditingHost}
+          onClose={() => setWorkspaceEditingHost(null)}
+          onSaved={() => {
+            setWorkspaceEditingHost(null);
+            void refreshLocal();
+          }}
+        />
+      ) : null}
+      <Dialog
+        open={!!workspaceDeleteHost}
+        onOpenChange={(open) => {
+          if (!open) setWorkspaceDeleteHost(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除主机“{workspaceDeleteHost?.name}”？</DialogTitle>
+            <DialogDescription>
+              本地主机配置及保存的凭据将被删除。已打开的会话不受影响。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWorkspaceDeleteHost(null)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={() => void deleteWorkspaceHost()}>
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <BatchImportDialog
+        open={workspaceBatchImportOpen}
+        onOpenChange={setWorkspaceBatchImportOpen}
+        onImported={async () => {
+          await refreshLocal();
+          setResourcePage(1);
+        }}
+      />
+      <Dialog
+        open={workspaceTemplateOpen}
+        onOpenChange={setWorkspaceTemplateOpen}
+      >
+        <DialogContent className="host-template-dialog">
+          <DialogHeader>
+            <DialogTitle>获取模板</DialogTitle>
+            <DialogDescription className="sr-only">
+              选择并保存主机批量导入模板。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="host-template-dialog__items">
+            <button
+              type="button"
+              onClick={() => void downloadWorkspaceHostTemplate("excel")}
+            >
+              <Download />
+              <span>EXCEL 模板</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void downloadWorkspaceHostTemplate("yaml")}
+            >
+              <Download />
+              <span>YAML 模板</span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <HostKeyPrompt />
       {lockStatus.locked ? (
         <ScreenLock onUnlocked={() => void unlockWorkspace()} />
