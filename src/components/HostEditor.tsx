@@ -1,34 +1,25 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import {
+  ChevronDown,
+  FolderOpen,
   LoaderCircle,
+  Minus,
   Plus,
   Trash2,
-  KeyRound,
-  Network,
-  PlugZap,
-  Server,
   CheckCircle2,
-  FolderOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-  FieldDescription,
-} from "@/components/ui/field";
-import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Choice } from "./Choice";
 import { command, errorMessage, type LocalHost } from "@/lib/api";
@@ -46,18 +37,50 @@ const emptyHost: LocalHost = {
   tunnels: [],
   hasPassword: false,
 };
+
+/** 表单行：label 定宽右对齐，控件占满剩余宽度（对齐 pixiu-ui 的 el-form label-width）。 */
+function Row({
+  label,
+  htmlFor,
+  required,
+  invalid,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  required?: boolean;
+  invalid?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="host-form-row" data-invalid={invalid || undefined}>
+      <label className="host-form-row__label" htmlFor={htmlFor}>
+        {required ? (
+          <i className="host-form-required" aria-hidden="true">
+            *
+          </i>
+        ) : null}
+        {label}
+      </label>
+      <div className="host-form-row__control">{children}</div>
+    </div>
+  );
+}
+
 export function HostEditor({
   host,
-  groups,
   onClose,
   onSaved,
 }: {
   host?: LocalHost;
-  groups: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<LocalHost>({ ...emptyHost, ...host });
+  const [authMode, setAuthMode] = useState<"password" | "key">(
+    host?.identityFile ? "key" : "password",
+  );
+  const [advanced, setAdvanced] = useState(false);
   const [proxyPassword, setProxyPassword] = useState("");
   const [clearProxyPassword, setClearProxyPassword] = useState(false);
   const [password, setPassword] = useState("");
@@ -81,8 +104,26 @@ export function HostEditor({
   ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** 提交过一次后，才对缺失的必填项做字段级标红，避免刚打开就一片红框。 */
+  const [fieldErrors, setFieldErrors] = useState(false);
+  const hasSavedPassword = draft.hasPassword && !clearPassword;
+  const missing = {
+    name: !draft.name.trim(),
+    address: !draft.address.trim(),
+    username: !draft.username.trim(),
+    port: !Number.isInteger(draft.port) || draft.port < 1 || draft.port > 65535,
+    secret:
+      authMode === "password"
+        ? !password && !hasSavedPassword
+        : !draft.identityFile.trim(),
+  };
   function update<K extends keyof LocalHost>(key: K, value: LocalHost[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
+  }
+  /** 端口步进：保持在 1–65535，输入为空时按 22 起步。 */
+  function stepPort(delta: number) {
+    const next = (draft.port || 22) + delta;
+    update("port", Math.min(65535, Math.max(1, next)));
   }
   async function testConnection() {
     setTesting(true);
@@ -118,15 +159,17 @@ export function HostEditor({
   async function save(event: FormEvent) {
     event.preventDefault();
     if (
-      !draft.name.trim() ||
-      !draft.address.trim() ||
-      !draft.username.trim() ||
-      !Number.isInteger(draft.port) ||
-      draft.port < 1 ||
-      draft.port > 65535
+      missing.name ||
+      missing.address ||
+      missing.username ||
+      missing.port ||
+      missing.secret
     ) {
+      setFieldErrors(true);
       setError(
-        "请填写主机名称、地址、SSH 用户名，并设置 1–65535 范围内的端口。",
+        authMode === "password"
+          ? "请填写主机名称、IP 地址、SSH 用户与 SSH 密码。"
+          : "请填写主机名称、IP 地址、SSH 用户与私钥路径。",
       );
       return;
     }
@@ -173,36 +216,249 @@ export function HostEditor({
       <DialogContent
         className="host-editor"
         showCloseButton={!busy && !testing}
+        onOpenAutoFocus={(event) => event.preventDefault()}
       >
-        <form noValidate onSubmit={save} className="flex flex-col gap-5">
-          <DialogHeader className="local-host-heading">
-            <span className="local-host-symbol">
-              <Server />
-            </span>
-            <DialogTitle>{host ? "编辑主机" : "添加主机"}</DialogTitle>
-            <DialogDescription>
-              连接信息保存到本机，密码保存在系统凭据库。
+        <form
+          noValidate
+          autoComplete="off"
+          onSubmit={save}
+          className="host-editor__form"
+        >
+          <DialogHeader>
+            <DialogTitle>{host ? "编辑节点" : "新增节点"}</DialogTitle>
+            <DialogDescription className="sr-only">
+              连接信息保存在本机，密码写入系统凭据库。
             </DialogDescription>
           </DialogHeader>
-          <Tabs defaultValue="general">
-            <TabsList>
-              <TabsTrigger value="general">基本信息</TabsTrigger>
-              <TabsTrigger value="auth">
-                <KeyRound />
-                账号认证
-              </TabsTrigger>
-              <TabsTrigger value="proxy">网络代理</TabsTrigger>
-              <TabsTrigger value="tunnels">
-                <Network />
-                隧道 {draft.tunnels.length || ""}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="proxy">
-              <FieldGroup>
-                <Field>
-                  <FieldLabel>代理协议</FieldLabel>
+          <div className="host-form">
+            <Row
+              label="主机名称"
+              htmlFor="host-name"
+              required
+              invalid={fieldErrors && missing.name}
+            >
+              <Input
+                id="host-name"
+                name="local-host-name"
+                required
+                autoComplete="off"
+                maxLength={120}
+                placeholder="小写字母、数字、中划线"
+                aria-invalid={fieldErrors && missing.name}
+                value={draft.name}
+                onChange={(event) => update("name", event.target.value)}
+              />
+            </Row>
+            <Row
+              label="IP 地址"
+              htmlFor="host-address"
+              required
+              invalid={fieldErrors && missing.address}
+            >
+              <Input
+                id="host-address"
+                name="local-host-address"
+                required
+                autoComplete="off"
+                aria-invalid={fieldErrors && missing.address}
+                value={draft.address}
+                onChange={(event) => update("address", event.target.value)}
+              />
+            </Row>
+            <Row label="分组" htmlFor="host-group">
+              <Input
+                id="host-group"
+                placeholder="生产环境、测试环境（选填）"
+                value={draft.group}
+                onChange={(event) => update("group", event.target.value)}
+              />
+            </Row>
+            <Row label="认证方式" required>
+              <div
+                className="host-radios"
+                role="radiogroup"
+                aria-label="认证方式"
+              >
+                <label className="host-radio">
+                  <input
+                    type="radio"
+                    name="host-auth"
+                    value="password"
+                    checked={authMode === "password"}
+                    onChange={() => {
+                      setAuthMode("password");
+                      update("identityFile", "");
+                    }}
+                  />
+                  密码
+                </label>
+                <label className="host-radio">
+                  <input
+                    type="radio"
+                    name="host-auth"
+                    value="key"
+                    checked={authMode === "key"}
+                    onChange={() => setAuthMode("key")}
+                  />
+                  密钥
+                </label>
+              </div>
+            </Row>
+            <Row
+              label="SSH 用户"
+              htmlFor="host-user"
+              invalid={fieldErrors && missing.username}
+            >
+              <Input
+                id="host-user"
+                required
+                placeholder="root"
+                aria-invalid={fieldErrors && missing.username}
+                value={draft.username}
+                onChange={(event) => update("username", event.target.value)}
+              />
+            </Row>
+            {authMode === "password" ? (
+              <Row
+                label="SSH 密码"
+                htmlFor="host-password"
+                required
+                invalid={fieldErrors && missing.secret}
+              >
+                <Input
+                  id="host-password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder={hasSavedPassword ? "已保存；留空保持原密码" : undefined}
+                  aria-invalid={fieldErrors && missing.secret}
+                  disabled={clearPassword}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                {draft.hasPassword ? (
+                  <button
+                    type="button"
+                    className="host-link host-form-aside"
+                    onClick={() => {
+                      setClearPassword((value) => !value);
+                      setPassword("");
+                    }}
+                  >
+                    {clearPassword ? "保留已保存密码" : "移除已保存密码"}
+                  </button>
+                ) : null}
+              </Row>
+            ) : (
+              <Row
+                label="SSH 私钥"
+                htmlFor="host-key"
+                required
+                invalid={fieldErrors && missing.secret}
+              >
+                <div className="host-form-inline">
+                  <Input
+                    id="host-key"
+                    placeholder="~/.ssh/id_ed25519"
+                    aria-invalid={fieldErrors && missing.secret}
+                    value={draft.identityFile}
+                    onChange={(event) =>
+                      update("identityFile", event.target.value)
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label="选择 SSH 私钥"
+                    title="选择 SSH 私钥"
+                    onClick={() =>
+                      void command<string | null>("identity_file_pick")
+                        .then((path) => {
+                          if (path) update("identityFile", path);
+                        })
+                        .catch((error) => setError(errorMessage(error)))
+                    }
+                  >
+                    <FolderOpen />
+                  </Button>
+                </div>
+                <p className="host-form-tip">
+                  私钥优先于密码；填写口令时可在上方「SSH 密码」切换为密码认证。
+                </p>
+              </Row>
+            )}
+            <Row label="备注" htmlFor="host-note">
+              <Textarea
+                id="host-note"
+                className="host-note"
+                rows={3}
+                maxLength={2000}
+                placeholder="选填，例如用途、负责人、环境说明"
+                value={draft.note}
+                onChange={(event) => update("note", event.target.value)}
+              />
+            </Row>
+            <button
+              type="button"
+              className="host-form-more"
+              aria-expanded={advanced}
+              onClick={() => setAdvanced((value) => !value)}
+            >
+              高级选项
+              <ChevronDown data-open={advanced} />
+            </button>
+            {advanced ? (
+              <div className="host-form-advanced">
+                <Row
+                  label="SSH 端口"
+                  htmlFor="host-port"
+                  invalid={fieldErrors && missing.port}
+                >
+                  <div className="host-port">
+                    <button
+                      type="button"
+                      aria-label="减小端口"
+                      onClick={() => stepPort(-1)}
+                    >
+                      <Minus />
+                    </button>
+                    <Input
+                      id="host-port"
+                      type="number"
+                      required
+                      min={1}
+                      max={65535}
+                      aria-invalid={fieldErrors && missing.port}
+                      value={draft.port || ""}
+                      onChange={(event) =>
+                        update("port", Number(event.target.value))
+                      }
+                    />
+                    <button
+                      type="button"
+                      aria-label="增大端口"
+                      onClick={() => stepPort(1)}
+                    >
+                      <Plus />
+                    </button>
+                  </div>
+                </Row>
+                <Row label="标签" htmlFor="host-tags">
+                  <Input
+                    id="host-tags"
+                    placeholder="生产, Linux, API"
+                    value={tags}
+                    onChange={(event) => setTags(event.target.value)}
+                  />
+                  <p className="host-form-tip">
+                    用逗号分隔，可按标签组织主机。
+                  </p>
+                </Row>
+                <Row label="网络代理">
                   <Choice
                     label="代理协议"
+                    triggerClassName="host-proxy-select"
+                    contentClassName="host-proxy-select-content"
                     value={draft.proxy?.kind ?? "none"}
                     onChange={(value) =>
                       update(
@@ -224,315 +480,127 @@ export function HostEditor({
                       { value: "http", label: "HTTP CONNECT" },
                     ]}
                   />
-                </Field>
-                {draft.proxy ? (
-                  <>
-                    <Field>
-                      <FieldLabel>代理地址</FieldLabel>
+                  {draft.proxy ? (
+                    <div className="host-proxy">
                       <Input
                         aria-label="代理地址"
+                        placeholder="代理地址"
                         value={draft.proxy.address}
-                        onChange={(e) =>
+                        onChange={(event) =>
                           update("proxy", {
                             ...draft.proxy!,
-                            address: e.target.value,
+                            address: event.target.value,
                           })
                         }
                       />
-                    </Field>
-                    <Field>
-                      <FieldLabel>代理端口</FieldLabel>
                       <Input
                         aria-label="代理端口"
                         type="number"
                         min={1}
                         max={65535}
+                        placeholder="端口"
                         value={draft.proxy.port}
-                        onChange={(e) =>
+                        onChange={(event) =>
                           update("proxy", {
                             ...draft.proxy!,
-                            port: Number(e.target.value),
+                            port: Number(event.target.value),
                           })
                         }
                       />
-                    </Field>
-                    <Field>
-                      <FieldLabel>代理用户名</FieldLabel>
                       <Input
                         aria-label="代理用户名"
+                        placeholder="用户名（选填）"
                         value={draft.proxy.username}
-                        onChange={(e) =>
+                        onChange={(event) =>
                           update("proxy", {
                             ...draft.proxy!,
-                            username: e.target.value,
+                            username: event.target.value,
                           })
                         }
                       />
-                    </Field>
-                    <Field>
-                      <FieldLabel>代理密码</FieldLabel>
                       <Input
                         aria-label="代理密码"
                         type="password"
-                        value={proxyPassword}
-                        onChange={(e) => setProxyPassword(e.target.value)}
                         autoComplete="new-password"
-                      />
-                      <FieldDescription>
-                        密码仅保存在系统凭据库；SSH、SFTP 及快捷传输共用此代理。
-                      </FieldDescription>
-                    </Field>
-                    {draft.proxy.hasPassword ? (
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={clearProxyPassword}
-                          onChange={(e) =>
-                            setClearProxyPassword(e.target.checked)
-                          }
-                        />
-                        删除已保存的代理密码
-                      </label>
-                    ) : null}
-                  </>
-                ) : null}
-              </FieldGroup>
-            </TabsContent>
-            <TabsContent
-              value="general"
-              forceMount
-              className="data-[state=inactive]:hidden"
-            >
-              <FieldGroup className="py-4">
-                <Field>
-                  <FieldLabel htmlFor="host-name">名称</FieldLabel>
-                  <Input
-                    autoFocus
-                    id="host-name"
-                    required
-                    maxLength={120}
-                    placeholder="例如：prod-api-01"
-                    value={draft.name}
-                    onChange={(event) => update("name", event.target.value)}
-                  />
-                </Field>
-                <div className="grid grid-cols-[1fr_100px] gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="host-address">
-                      主机 / IP 地址
-                    </FieldLabel>
-                    <Input
-                      id="host-address"
-                      required
-                      placeholder="192.168.1.10"
-                      value={draft.address}
-                      onChange={(event) =>
-                        update("address", event.target.value)
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="host-port">SSH 端口</FieldLabel>
-                    <Input
-                      id="host-port"
-                      type="number"
-                      required
-                      min={1}
-                      max={65535}
-                      value={draft.port || ""}
-                      onChange={(event) =>
-                        update("port", Number(event.target.value))
-                      }
-                    />
-                  </Field>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="host-group">分组</FieldLabel>
-                    <Input
-                      id="host-group"
-                      list="host-group-options"
-                      placeholder="选择或输入分组"
-                      value={draft.group}
-                      onChange={(event) => update("group", event.target.value)}
-                    />
-                    <datalist id="host-group-options">
-                      {groups.map((group) => (
-                        <option key={group} value={group} />
-                      ))}
-                    </datalist>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="host-tags">标签</FieldLabel>
-                    <Input
-                      id="host-tags"
-                      placeholder="生产, Linux, API"
-                      value={tags}
-                      onChange={(event) => setTags(event.target.value)}
-                    />
-                    <FieldDescription>
-                      用逗号分隔，可按标签组织主机。
-                    </FieldDescription>
-                  </Field>
-                </div>
-                <Field>
-                  <FieldLabel htmlFor="host-note">备注</FieldLabel>
-                  <Textarea
-                    id="host-note"
-                    maxLength={2000}
-                    value={draft.note}
-                    onChange={(event) => update("note", event.target.value)}
-                  />
-                </Field>
-              </FieldGroup>
-            </TabsContent>
-            <TabsContent
-              value="auth"
-              forceMount
-              className="data-[state=inactive]:hidden"
-            >
-              <FieldGroup className="py-4">
-                <Field>
-                  <FieldLabel htmlFor="host-user">SSH 用户名</FieldLabel>
-                  <Input
-                    id="host-user"
-                    required
-                    value={draft.username}
-                    onChange={(event) => update("username", event.target.value)}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="host-password">
-                    密码 / 私钥口令
-                  </FieldLabel>
-                  <Input
-                    id="host-password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={
-                      draft.hasPassword && !clearPassword
-                        ? "已保存；留空保持原密码"
-                        : "留空则连接时交互认证"
-                    }
-                    disabled={clearPassword}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                  />
-                  <FieldDescription>
-                    用于 SSH 与 SFTP 自动认证。私钥已配置时，此处作为私钥口令。
-                  </FieldDescription>
-                  {draft.hasPassword ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setClearPassword((value) => !value);
-                        setPassword("");
-                      }}
-                    >
-                      {clearPassword ? "保留已保存密码" : "移除已保存密码"}
-                    </Button>
-                  ) : null}
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="host-key">私钥路径（可选）</FieldLabel>
-                  <div className="flex gap-2">
-                    <Input
-                      id="host-key"
-                      placeholder="~/.ssh/id_ed25519"
-                      value={draft.identityFile}
-                      onChange={(event) =>
-                        update("identityFile", event.target.value)
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-sm"
-                      aria-label="选择 SSH 私钥"
-                      title="选择 SSH 私钥"
-                      onClick={() =>
-                        void command<string | null>("identity_file_pick").then((path) => {
-                          if (path) update("identityFile", path);
-                        }).catch((error) => setError(errorMessage(error)))
-                      }
-                    >
-                      <FolderOpen />
-                    </Button>
-                  </div>
-                  <FieldDescription>
-                    私钥优先；未配置私钥或密码时使用 SSH Agent。SFTP
-                    需要可用的保存凭据。
-                  </FieldDescription>
-                </Field>
-              </FieldGroup>
-            </TabsContent>
-            <TabsContent
-              value="tunnels"
-              forceMount
-              className="data-[state=inactive]:hidden"
-            >
-              <div className="flex flex-col gap-4 py-4">
-                <p className="form-note">
-                  随 SSH 终端建立、断开。监听地址固定为
-                  127.0.0.1，避免暴露到外网。
-                </p>
-                {draft.tunnels.map((tunnel, index) => (
-                  <div className="tunnel-card" key={index}>
-                    <div className="flex items-center gap-3">
-                      <Choice
-                        label={`隧道 ${index + 1} 类型`}
-                        value={tunnel.kind}
-                        onChange={(kind) =>
-                          update(
-                            "tunnels",
-                            draft.tunnels.map((item, i) =>
-                              i === index
-                                ? { ...item, kind: kind as typeof tunnel.kind }
-                                : item,
-                            ),
-                          )
+                        placeholder="密码（选填）"
+                        value={proxyPassword}
+                        onChange={(event) =>
+                          setProxyPassword(event.target.value)
                         }
-                        options={[
-                          { value: "local", label: "本地转发 (-L)" },
-                          { value: "remote", label: "远程转发 (-R)" },
-                          { value: "dynamic", label: "SOCKS 代理 (-D)" },
-                        ]}
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`删除隧道 ${index + 1}`}
-                        onClick={() =>
-                          update(
-                            "tunnels",
-                            draft.tunnels.filter((_, i) => i !== index),
-                          )
-                        }
-                      >
-                        <Trash2 />
-                      </Button>
+                      {draft.proxy.hasPassword ? (
+                        <label className="host-check">
+                          <input
+                            type="checkbox"
+                            checked={clearProxyPassword}
+                            onChange={(event) =>
+                              setClearProxyPassword(event.target.checked)
+                            }
+                          />
+                          删除已保存的代理密码
+                        </label>
+                      ) : null}
                     </div>
-                    <FieldGroup className="mt-4">
-                      <div className="grid grid-cols-3 gap-3">
-                        {(["listenPort", "targetHost", "targetPort"] as const)
-                          .filter(
-                            (key) =>
-                              tunnel.kind !== "dynamic" || key === "listenPort",
-                          )
-                          .map((key) => (
-                            <Field key={key}>
-                              <FieldLabel htmlFor={`tunnel-${index}-${key}`}>
-                                {key === "listenPort"
-                                  ? "监听端口"
-                                  : key === "targetHost"
-                                    ? "目标主机"
-                                    : "目标端口"}
-                              </FieldLabel>
+                  ) : null}
+                </Row>
+                <Row label="SSH 隧道">
+                  <div className="host-tunnels">
+                    {draft.tunnels.map((tunnel, index) => (
+                      <div
+                        className={`host-tunnel-row${
+                          tunnel.kind === "dynamic"
+                            ? " host-tunnel-row--dynamic"
+                            : ""
+                        }`}
+                        key={index}
+                      >
+                          <Choice
+                            label={`隧道 ${index + 1} 类型`}
+                            triggerClassName="host-tunnel-kind"
+                            contentClassName="host-tunnel-kind-content"
+                            value={tunnel.kind}
+                            onChange={(kind) =>
+                              update(
+                                "tunnels",
+                                draft.tunnels.map((item, i) =>
+                                  i === index
+                                    ? {
+                                        ...item,
+                                        kind: kind as typeof tunnel.kind,
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                            options={[
+                              { value: "local", label: "本地转发 (-L)" },
+                              { value: "remote", label: "远程转发 (-R)" },
+                              { value: "dynamic", label: "SOCKS 代理 (-D)" },
+                            ]}
+                          />
+                          {(["listenPort", "targetHost", "targetPort"] as const)
+                            .filter(
+                              (key) =>
+                                tunnel.kind !== "dynamic" ||
+                                key === "listenPort",
+                            )
+                            .map((key) => (
                               <Input
-                                id={`tunnel-${index}-${key}`}
+                                key={key}
+                                aria-label={
+                                  key === "listenPort"
+                                    ? "监听端口"
+                                    : key === "targetHost"
+                                      ? "目标主机"
+                                      : "目标端口"
+                                }
+                                placeholder={
+                                  key === "listenPort"
+                                    ? "监听端口"
+                                    : key === "targetHost"
+                                      ? "目标主机"
+                                      : "目标端口"
+                                }
                                 type={key === "targetHost" ? "text" : "number"}
                                 min={1}
                                 max={65535}
@@ -554,34 +622,50 @@ export function HostEditor({
                                   )
                                 }
                               />
-                            </Field>
-                          ))}
+                            ))}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="host-tunnel-remove"
+                            aria-label={`删除隧道 ${index + 1}`}
+                            onClick={() =>
+                              update(
+                                "tunnels",
+                                draft.tunnels.filter((_, i) => i !== index),
+                              )
+                            }
+                          >
+                            <Trash2 />
+                          </Button>
                       </div>
-                    </FieldGroup>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="host-tunnels__add"
+                      disabled={draft.tunnels.length >= 16}
+                      onClick={() =>
+                        update("tunnels", [
+                          ...draft.tunnels,
+                          {
+                            kind: "local",
+                            listenPort: 8080,
+                            targetHost: "127.0.0.1",
+                            targetPort: 80,
+                          },
+                        ])
+                      }
+                    >
+                      <Plus data-icon="inline-start" />
+                      添加隧道
+                    </Button>
                   </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() =>
-                    update("tunnels", [
-                      ...draft.tunnels,
-                      {
-                        kind: "local",
-                        listenPort: 8080,
-                        targetHost: "127.0.0.1",
-                        targetPort: 80,
-                      },
-                    ])
-                  }
-                  disabled={draft.tunnels.length >= 16}
-                >
-                  <Plus data-icon="inline-start" />
-                  添加隧道
-                </Button>
+                </Row>
               </div>
-            </TabsContent>
-          </Tabs>
+            ) : null}
+          </div>
           {error ? (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
@@ -604,39 +688,36 @@ export function HostEditor({
               </div>
             </div>
           ) : null}
-          <DialogFooter className="local-host-footer">
+          <DialogFooter className="host-editor__footer">
             <Button
               type="button"
               variant="outline"
+              className="host-editor__test"
               disabled={busy || testing}
               onClick={() => void testConnection()}
             >
-              {testing ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <PlugZap />
-              )}
-              {testing ? "正在检测…" : "连通性检测"}
+              {testing ? <LoaderCircle className="animate-spin" /> : null}
+              {testing ? "正在检测…" : "测试连接"}
             </Button>
-            <span />
-
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy || testing}
-              onClick={onClose}
-            >
-              取消
-            </Button>
-            <Button disabled={busy || testing} type="submit">
-              {busy ? (
-                <LoaderCircle
-                  className="animate-spin"
-                  data-icon="inline-start"
-                />
-              ) : null}
-              保存主机
-            </Button>
+            <div className="host-editor__footer-right">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || testing}
+                onClick={onClose}
+              >
+                取消
+              </Button>
+              <Button disabled={busy || testing} type="submit">
+                {busy ? (
+                  <LoaderCircle
+                    className="animate-spin"
+                    data-icon="inline-start"
+                  />
+                ) : null}
+                确定
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -665,20 +665,513 @@
   color: var(--muted-foreground);
   margin-top: 6px;
 }
-.host-heading-actions {
+/* 主机管理：对齐 pixiu-ui 主机管理页（提示条 → 工具栏 → 表格），段间距 10px */
+.host-manage {
+  /* pixiu-ui 暗色主题运行时的 --el-color-primary。 */
+  --primary: #5d87ff;
+  --host-link: #5d87ff;
+  --host-table-link-primary: #5d87ff;
   display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: -13px clamp(-24px, -1.4vw, -12px) -26px;
+  padding: 13px clamp(12px, 1.4vw, 24px) 26px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.dark .host-manage {
+  --foreground: #c7c7d1;
+  --muted-foreground: #9b9ba3;
+  --border: #303030;
+  --card-solid: #181818;
+  --surface-solid: #1f1f1f;
+  --input-solid: #141414;
+  --active-solid: #252525;
+  --popover-solid: #1f1f1f;
+  --host-link: #5d87ff;
+  color: #c7c7d1;
+}
+/* 提示条：对齐 pixiu-ui 的 page-notice —— 45px 高、蓝底蓝字、无描边 */
+.host-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 45px;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+  padding: 10px 16px 10px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: #ecf5ff;
+  color: #0958d9;
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* shell 的页面底色比 pixiu-ui 更亮；这里锁定参考页截图里的最终深蓝，不参与混色。 */
+.dark .host-notice {
+  /* A lighter translucent blue layer for Shell's darker content surface. */
+  background: rgb(64 158 255 / 8%);
+  color: #a8cfff;
+}
+/* 与 pixiu-ui page-notice 一致的 Element Plus InfoFilled 实心信息图标。 */
+.host-notice__icon {
   flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: #0958d9;
+}
+.host-notice > span {
+  flex: 1;
+}
+.host-notice__close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.host-notice__close:hover {
+  background: rgb(9 88 217 / 10%);
+  opacity: 1;
+}
+.host-notice__close svg {
+  width: 13px;
+  height: 13px;
+}
+.host-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 27px;
+}
+.host-toolbar__selected {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.host-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+/* 动作链接与「搜索框 + 刷新」两组内部同为 12px，整行间距一致 */
+.host-toolbar__links,
+.host-toolbar__fields {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.host-toolbar__links {
+  gap: 10px;
+}
+/* 搜索框与刷新按钮之间按 pixiu-ui 收到 8px */
+.host-toolbar__fields {
+  gap: 8px;
+}
+/* 主操作按钮：对齐 pixiu-ui 的 ElButton 默认态（36px、#141414 底、主色描边）。 */
+.host-primary-action[data-slot="button"][data-variant="outline"] {
+  height: 36px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: #141414;
+  box-shadow: none;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 400;
+}
+.host-primary-action[data-slot="button"][data-variant="outline"] {
+  padding: 0 15px;
+}
+.host-primary-action[data-slot="button"][data-variant="outline"]:hover {
+  /* pixiu-ui's dark ElButton: --el-color-primary-light-9. */
+  border-color: var(--primary);
+  background: #090d19;
+  color: var(--primary);
+}
+/* 图标按钮（刷新）：pixiu-ui 是 32px 无描边的小方块，比 36px 的按钮矮一档 */
+.host-toolbar [data-slot="button"][data-variant="outline"][data-size="icon-sm"] {
+  width: 32px;
+  height: 32px;
+  border-color: transparent;
+  background: #1f1f24;
+  color: var(--muted-foreground);
+}
+.dark
+  .host-toolbar
+  [data-slot="button"][data-variant="outline"][data-size="icon-sm"] {
+  border-color: transparent;
+  background: var(--secondary-solid);
+}
+.host-toolbar
+  [data-slot="button"][data-variant="outline"][data-size="icon-sm"]:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--primary);
+}
+/* 文字链接操作：pixiu-ui 用 ElLink type=primary + 12px */
+.host-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* 主机管理页的链接跟随本页主色，与新增主机按钮同一支蓝 */
+.host-manage .host-link {
+  color: var(--host-link);
+}
+.host-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* pixiu-ui safeguard/host uses ElButton type=primary link for these two tools.
+   Link buttons stay transparent; hover only changes to primary-light-5. */
+.host-toolbar__links .host-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #5d87ff;
+  font-weight: 400;
+  text-decoration: none;
+  transition: color 0.1s;
+}
+.host-toolbar__links .host-link:hover {
+  color: #2e437f;
+  text-decoration: none;
+}
+.host-link:disabled {
+  color: var(--muted-foreground);
+  cursor: default;
+  text-decoration: none;
+}
+.host-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* pixiu-ui host-toolbar__search */
+  width: 360px;
+  max-width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #141414;
+  color: var(--muted-foreground);
+}
+/* 暗色描边比填充亮一档（pixiu-ui 的 el-input 是 #4c4d4f 压 #141414），否则框线糊在底色里 */
+.dark .host-filter {
+  border-color: #4c4d4f;
+}
+.host-filter:focus-within {
+  border-color: var(--ring);
+}
+.host-filter > svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: color-mix(in srgb, var(--muted-foreground) 72%, transparent);
+}
+.host-filter [data-slot="input"] {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+.host-filter [data-slot="input"]:focus-visible {
+  border: 0;
+  box-shadow: none;
+}
+.host-table-wrap {
+  overflow: hidden;
+  border: 0;
+  border-radius: 7px;
+  background: var(--card);
+}
+.host-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 52px;
+  padding: 12px 16px 8px;
+  color: var(--secondary-foreground);
+  font-size: 12px;
+}
+.host-pagination__total {
+  margin-right: 8px;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.host-pagination [data-slot="button"] {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--secondary-foreground);
+}
+.host-pagination [data-slot="button"]:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  color: var(--primary);
+}
+.host-pagination [data-slot="button"] svg {
+  width: 15px;
+  height: 15px;
+}
+.host-pagination__pages {
+  display: flex;
   align-items: center;
   gap: 8px;
 }
-.host-heading-actions [data-slot="button"] {
-  min-width: 120px;
+.host-pagination__page {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
-.host-heading-actions .host-heading-import {
-  background: color-mix(in srgb, var(--card) 88%, transparent);
+.host-pagination__page:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
-.host-heading-actions .host-heading-import:hover {
-  background: var(--active);
+.host-pagination__page[data-active="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.host-pagination__size[data-slot="select-trigger"] {
+  width: 102px;
+  height: 32px;
+  margin-left: 8px;
+  padding: 0 10px;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: #141414;
+  color: var(--foreground);
+  font-size: 12px;
+}
+.host-pagination__jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.host-pagination__jump [data-slot="input"] {
+  width: 70px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: #141414;
+  color: var(--foreground);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.host-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  text-align: left;
+}
+.host-table th {
+  height: 65px;
+  padding: 0 16px;
+  border-bottom: 1px solid #484848;
+  background: var(--card);
+  color: var(--secondary-foreground);
+  /* pixiu-ui 表格头与表体均为 12px。 */
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.host-table td {
+  height: 50px;
+  padding: 0 16px;
+  border-bottom: 1px solid #484848;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 400;
+  vertical-align: middle;
+}
+.host-table td.mono {
+  font-family: inherit;
+  font-size: 12px;
+}
+.host-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.host-table tbody tr:nth-child(even) {
+  background: var(--surface);
+}
+.host-table tbody tr:hover {
+  background: var(--hover);
+}
+.host-table tbody tr[data-selected="true"] {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+.host-table__check {
+  width: 48px;
+  padding-right: 0;
+}
+.host-table input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.host-table__name {
+  font-weight: 500;
+  color: #5d87ff;
+}
+.host-table__port {
+  width: 110px;
+  font-variant-numeric: tabular-nums;
+}
+.host-table__actions-head {
+  width: 200px;
+  white-space: nowrap;
+}
+.host-table__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.host-table__actions .host-link {
+  /* Mirrors pixiu-ui's ElLink type=primary in safeguard/host. */
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--host-table-link-primary) !important;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: normal;
+  text-decoration: none;
+}
+.host-table__actions .host-link:hover {
+  color: #415eb2 !important;
+  text-decoration: none;
+}
+.host-table__actions .host-link:disabled {
+  color: #2e437f !important;
+}
+.host-more {
+  position: relative;
+}
+.host-more__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.host-more__trigger svg {
+  width: 12px;
+  height: 12px;
+}
+.host-more__menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  right: 0;
+  min-width: 80px;
+  padding: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: #161618;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 8%), 0 3px 6px rgb(0 0 0 / 12%),
+    0 9px 28px rgb(0 0 0 / 5%);
+}
+.host-more__menu button {
+  width: 100%;
+  height: 32px;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #e3e3e8;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: left;
+}
+.host-more__menu button:hover {
+  background: #2e2e38;
+  color: #e3e3e8;
+}
+/* pixiu-ui ElSelect dropdown used by the host pagination control. */
+.dark .host-pagination__size-content[data-slot="select-content"] {
+  min-width: var(--radix-select-trigger-width);
+  padding: 5px;
+  border: 0;
+  border-radius: 10px;
+  background: #161618;
+  color: #c7c7d1;
+  box-shadow: 0 8px 18px rgb(0 0 0 / 35%);
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+}
+.dark .host-pagination__size-content [data-slot="select-viewport"] {
+  padding: 0;
+}
+.dark .host-pagination__size-content [data-slot="select-item"] {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 6px;
+  color: #c7c7d1;
+  font-size: 12px;
+  line-height: 34px;
+}
+.dark .host-pagination__size-content [data-slot="select-item"]:focus {
+  background: #252530;
+  color: #c7c7d1;
+}
+.dark .host-pagination__size-content [data-slot="select-item"][data-state="checked"] {
+  margin-bottom: 4px;
+  background: #2e2e38;
+  color: #5d87ff;
+  font-weight: 400;
+}
+.dark .host-pagination__size-content [data-slot="select-item-indicator"] {
+  display: none;
+}
+.host-engine {
+  display: none;
 }
 /* 深色遮罩压暗到 25%：页面与弹窗亮度差收窄，窗口透明度调低时弹窗不再显得突兀地亮 */
 .dark [data-slot="dialog-overlay"] {
@@ -700,114 +1193,210 @@
 [data-slot="dialog-content"] [data-slot="button"][data-variant="outline"]:hover {
   background: var(--active-solid);
 }
+/* 批量导入弹窗：对齐 pixiu-ui host-batch-import（提示条 → 关联分组 → 拖拽区 → 底部下载） */
 .batch-import-dialog[data-slot="dialog-content"] {
-  width: min(500px, calc(100vw - 32px));
+  width: min(660px, calc(100vw - 32px));
   max-width: none;
-  gap: 12px;
-  padding: 20px;
-  background: #f7f7f8;
-  box-shadow: 0 24px 64px #00000080;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--popover-solid);
+}
+.batch-import-dialog [data-slot="dialog-header"] {
+  padding: 20px 24px 0;
+  border: 0;
 }
 .batch-import-dialog [data-slot="dialog-title"] {
   font-size: 15px;
-  line-height: 1.35;
-}
-.batch-import-dialog [data-slot="dialog-description"] {
-  max-width: 410px;
-  font-size: 11px;
-  line-height: 1.55;
+  font-weight: 500;
 }
 .batch-import-dialog [data-slot="dialog-close"] {
+  top: 20px;
+  right: 16px;
   color: var(--muted-foreground);
 }
-.batch-import-formats {
-  display: grid;
-  gap: 10px;
+.batch-import-dialog [data-slot="dialog-close"] svg {
+  width: 15px;
+  height: 15px;
 }
-.batch-import-formats [data-slot="tabs-list"] {
-  height: 28px;
-  justify-self: start;
-}
-.batch-import-formats [data-slot="tabs-trigger"] {
-  padding-inline: 10px;
-  font-size: 10px;
-}
-.batch-import-details {
-  display: grid;
-  gap: 8px;
-}
-.batch-import-details > p {
-  font-size: 10px;
-  line-height: 1.55;
-  color: var(--muted-foreground);
-}
-.batch-import-details pre {
-  max-height: 220px;
-  overflow: auto;
-  margin: 0;
-  padding: 10px;
-  border-radius: 5px;
-  background: #ebedf0;
-  color: var(--foreground);
-  font: 10px/1.6 Menlo, Consolas, monospace;
-  white-space: pre;
-}
-.batch-import-columns {
+.batch-import-body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 24px 12px;
 }
-.batch-import-columns code,
-.batch-import-details p code {
-  border-radius: 3px;
-  background: #ebedf0;
-  padding: 2px 5px;
-  color: var(--foreground);
-  font: 9px Menlo, Consolas, monospace;
+.batch-import-note {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 45px;
+  margin: 15px 0;
+  box-sizing: border-box;
+  padding: 10px 16px 10px 10px;
+  border-radius: 4px;
+  background: #ecf5ff;
+  color: #0958d9;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.dark .batch-import-note {
+  background: rgb(64 158 255 / 8%);
+  color: #a8cfff;
+}
+.batch-import-note__icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: #0958d9;
+}
+.dark .batch-import-note__icon {
+  color: #0958d9;
+}
+.batch-import-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  gap: 4px;
+  box-sizing: border-box;
+  padding: 13px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.batch-import-drop:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface));
+}
+.batch-import-drop:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+.batch-import-drop > svg {
+  width: 20px;
+  height: 20px;
+  margin-bottom: 4px;
+}
+.batch-import-drop__text {
+  color: var(--secondary-foreground);
+  font-size: 12px;
+}
+.batch-import-drop__text em {
+  margin-left: 2px;
+  color: var(--primary);
+  font-style: normal;
+}
+.batch-import-drop__hint {
+  margin-top: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
 }
 .batch-import-footer {
-  width: 100%;
+  display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px 16px;
+  border: 0;
+}
+.batch-import-footer__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.batch-import-footer__left .host-link {
+  text-decoration: none;
+}
+.batch-import-footer__left .host-link:hover {
+  color: #415eb2;
+  text-decoration: none;
+}
+.batch-import-footer__right {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 .batch-import-footer [data-slot="button"] {
-  min-width: 0;
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
 }
-.batch-import-footer .batch-import-template-action {
-  padding-inline: 8px;
-  border-color: transparent;
+/* 导入模板：采用参考页的轻量双选项样式，主机批量导入入口与模板下载各司其职。 */
+.host-template-dialog[data-slot="dialog-content"] {
+  width: min(380px, calc(100vw - 32px));
+  max-width: none;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--popover-solid);
+}
+.host-template-dialog [data-slot="dialog-header"] {
+  padding: 15px 20px 13px;
+  border-bottom: 1px solid var(--border);
+}
+.host-template-dialog [data-slot="dialog-title"] {
+  font-size: 15px;
+  font-weight: 600;
+}
+.host-template-dialog__items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px 20px;
+}
+.host-template-dialog__items > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
   background: transparent;
-  color: var(--muted-foreground);
-  font-size: 10px;
-}
-.batch-import-footer .batch-import-template-action:hover {
-  background: var(--surface);
   color: var(--foreground);
+  font-size: 12px;
+  text-align: left;
 }
-.batch-import-footer .batch-import-select-action {
-  min-width: 116px;
-  font-size: 11px;
+.host-template-dialog__items > button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
-.dark .batch-import-details pre,
-.dark .batch-import-columns code,
-.dark .batch-import-details p code {
-  background: #252525;
-}
-.dark .batch-import-footer .batch-import-template-action:hover {
-  background: #292929;
+.host-template-dialog__items > button svg {
+  width: 16px;
+  height: 16px;
 }
 @media (max-width: 680px) {
-  .section-heading:has(.host-heading-actions) {
+  .host-toolbar {
     align-items: flex-start;
     flex-direction: column;
   }
-  .host-heading-actions {
+  .host-toolbar__right {
     width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
   }
-  .host-heading-actions [data-slot="button"] {
-    flex: 1 1 0;
-    min-width: 0;
+  .host-filter {
+    flex: 1 1 160px;
+    width: auto;
+  }
+  .host-table__actions {
+    gap: 10px;
+  }
+  .host-pagination {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .host-pagination__total {
+    width: 100%;
   }
 }
 .data-table-wrap {
@@ -1346,8 +1935,30 @@
   border: 0;
   border-radius: 7px;
   background: var(--card);
-  padding: 23px;
+  padding: 20px;
   margin: 0 0 20px;
+}
+
+/* 主机管理沿用 shell 的设置页底色；表格本身仍是独立卡片。 */
+.settings-section.host-manage {
+  min-height: 0;
+  margin: -13px clamp(-24px, -1.4vw, -12px) -26px;
+  padding: 13px clamp(12px, 1.4vw, 24px) 26px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.dark .settings-section.host-manage {
+  --foreground: #c7c7d1;
+  --muted-foreground: #9b9ba3;
+  --border: #303030;
+  --card-solid: #181818;
+  --surface-solid: #1f1f1f;
+  --input-solid: #141414;
+  --active-solid: #252525;
+  --popover-solid: #1f1f1f;
+  color: #c7c7d1;
 }
 .settings-section > h2 {
   display: flex;
@@ -1417,17 +2028,15 @@
   color: var(--muted-foreground);
   text-align: right;
 }
-.settings-page [data-slot="field-label"],
-.host-editor [data-slot="field-label"] {
+/* 表单 label / 说明 / 输入：统一 12px，与 pixiu-ui el-form 一致 */
+.settings-page [data-slot="field-label"] {
   font-size: 11px;
 }
-.settings-page [data-slot="field-description"],
-.host-editor [data-slot="field-description"] {
+.settings-page [data-slot="field-description"] {
   font-size: 10px;
   line-height: 1.8;
 }
 .settings-page [data-slot="input"],
-.host-editor [data-slot="input"],
 .settings-page [data-slot="select-trigger"] {
   font-size: 12px;
 }
@@ -1538,28 +2147,6 @@
   padding: 15px 0 0;
   border-top: 1px solid var(--border);
 }
-.group-settings {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.group-settings > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  background: var(--surface);
-  border: 0;
-  border-radius: 5px;
-}
-.group-settings span {
-  flex: 1;
-  font-size: 11px;
-}
-.group-settings small {
-  color: var(--muted-foreground);
-  font-size: 10px;
-}
 .platform-explanation {
   display: flex;
   align-items: flex-start;
@@ -1585,21 +2172,16 @@
   line-height: 1.9;
   color: var(--muted-foreground);
 }
-.host-editor {
-  max-width: 620px;
-  max-height: 90vh;
-  overflow-y: auto;
-}
 .form-note {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
-  line-height: 1.8;
+  line-height: 1.6;
 }
 .tunnel-card {
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--surface);
-  padding: 13px;
+  padding: 14px 16px;
 }
 .login-symbol {
   width: 37px;
@@ -1878,9 +2460,6 @@
   }
   .header-mode {
     display: none;
-  }
-  .group-settings {
-    grid-template-columns: 1fr;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4217,69 +4796,702 @@ body,
   margin-top: 3px;
   overflow-wrap: anywhere;
 }
-.host-editor {
-  width: min(760px, calc(100vw - 48px));
-  max-width: min(760px, calc(100vw - 48px));
+/* 新增/编辑主机：单列表单，左 label 右控件，版式对齐 pixiu-ui 的「新增节点」弹窗 */
+.host-editor[data-slot="dialog-content"] {
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  gap: 0;
   padding: 0;
   overflow: hidden;
+  background: var(--popover-solid);
 }
-.host-editor > form {
-  gap: 0;
+.host-editor__form {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   max-height: calc(100dvh - 64px);
 }
-.host-editor .local-host-heading {
-  position: relative;
-  padding: 22px 24px 18px 76px;
-  min-height: 78px;
-}
-.local-host-symbol {
-  position: absolute;
-  left: 24px;
-  top: 24px;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
-  color: var(--primary);
-  border-radius: 8px;
-}
-.local-host-symbol svg {
-  width: 18px;
-  height: 18px;
+.host-editor [data-slot="dialog-header"] {
+  padding: 15px 20px 13px;
+  border-bottom: 1px solid var(--border);
 }
 .host-editor [data-slot="dialog-title"] {
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 600;
 }
-.host-editor [data-slot="dialog-description"] {
-  font-size: 11px;
+.host-editor [data-slot="dialog-close"] {
+  top: 13px;
+  right: 14px;
+  color: var(--muted-foreground);
 }
-.host-editor [data-slot="tabs"] {
+.host-editor [data-slot="dialog-close"] svg {
+  width: 15px;
+  height: 15px;
+}
+.host-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   min-height: 0;
-  gap: 0;
+  padding: 16px 20px 18px;
+  overflow-y: auto;
 }
-.host-editor [data-slot="tabs-list"] {
-  width: max-content;
-  margin: 0 24px 16px;
-  flex-shrink: 0;
+.host-form-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
 }
-.host-editor [data-slot="tabs-trigger"] {
+.host-form-row__label {
+  padding-top: 8px;
+  color: var(--secondary-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: right;
+}
+.host-form-row[data-invalid="true"] .host-form-row__label {
+  color: var(--destructive);
+}
+.host-form-required {
+  margin-right: 3px;
+  color: var(--destructive);
+  font-style: normal;
+}
+.host-form-row__control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.host-form-tip {
+  color: var(--muted-foreground);
   font-size: 11px;
-  padding-inline: 14px;
+  line-height: 1.5;
 }
-.host-editor [data-slot="tabs-content"] {
-  overflow: auto;
-  padding: 0 24px 22px;
-  min-height: 0;
-  max-height: 430px;
+.host-form-inline {
+  display: flex;
+  gap: 8px;
+}
+.host-form-inline [data-slot="input"] {
+  flex: 1;
+  min-width: 0;
+}
+.host-form-aside {
+  align-self: flex-start;
+}
+/* 控件尺寸：与 pixiu-ui el-input 默认 32px 一致 */
+.host-editor [data-slot="input"],
+.host-editor [data-slot="select-trigger"] {
+  height: 32px;
+  font-size: 12px;
+}
+.host-editor [data-slot="input"] {
+  padding-inline: 10px;
+}
+.host-editor [data-slot="textarea"] {
+  padding: 7px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.host-editor [data-slot="select-trigger"] {
+  width: 100%;
+  padding-inline: 10px;
+}
+.host-radios {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 32px;
+}
+.host-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+.host-radio input {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--card-solid);
+  cursor: pointer;
+}
+.host-radio input:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: inset 0 0 0 3px var(--card-solid);
+}
+/* 高级选项：文字链接 + 展开箭头，左边距对齐控件列 */
+.host-form-more {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.host-form-more svg {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.12s ease;
+}
+.host-form-more svg[data-open="true"] {
+  transform: rotate(180deg);
+}
+.host-form-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* SSH 端口步进器 */
+.host-port {
+  display: inline-flex;
+  align-items: center;
+  width: 132px;
+  height: 32px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card-solid);
+}
+.host-port > button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--secondary-foreground);
+  cursor: pointer;
+}
+.host-port > button:hover {
+  background: var(--active-solid);
+  color: var(--foreground);
+}
+.host-port > button svg {
+  width: 12px;
+  height: 12px;
+}
+.host-editor .host-port [data-slot="input"] {
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-inline: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.host-editor .host-port [data-slot="input"]:focus-visible {
+  border-color: var(--ring);
+  box-shadow: none;
+}
+.host-port input::-webkit-outer-spin-button,
+.host-port input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.host-proxy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
+  gap: 8px;
+}
+.host-check {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.host-tunnels {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+.host-editor .host-tunnel-row {
+  display: grid;
+  grid-template-columns: minmax(104px, 1.1fr) minmax(72px, 0.7fr) minmax(0, 1fr) minmax(72px, 0.7fr) 28px;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+}
+.host-editor .host-tunnel-row--dynamic {
+  grid-template-columns: minmax(104px, 1fr) minmax(0, 1fr) 28px;
+}
+.host-editor .tunnel-card {
+  width: 100%;
+  padding: 10px;
+}
+.host-tunnel-remove {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--primary);
+}
+.host-tunnel-remove:hover {
+  background: transparent;
+  color: var(--primary);
+}
+.host-tunnel-remove svg {
+  width: 14px;
+  height: 14px;
+}
+.host-tunnels__add {
+  height: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 400;
+}
+.host-tunnels__add:hover {
+  background: transparent;
+  color: var(--primary);
+}
+.host-tunnels__add svg {
+  width: 14px;
+  height: 14px;
 }
 .host-editor form > [role="alert"] {
-  margin: 0 24px 12px;
+  margin: 0 20px 12px;
   width: auto;
 }
-.host-editor .local-host-footer {
-  margin-top: auto;
+.host-editor .connectivity-result {
+  margin: 0 20px 12px;
+}
+.host-editor__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border);
+}
+.host-editor__footer-right {
+  display: flex;
+  gap: 8px;
+}
+.host-editor__footer [data-slot="button"] {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+/* 弹窗底部按钮：pixiu-ui 的取消/关闭是透明底 + 描边，不吃全局的浅灰底 */
+.batch-import-footer [data-slot="button"][data-variant="outline"],
+.host-editor__footer [data-slot="button"][data-variant="outline"] {
+  background: transparent;
+}
+/* 批量导入通过 Portal 挂载到页面外层，显式继承主机管理的深色弹窗规格。 */
+.dark .batch-import-dialog[data-slot="dialog-content"] {
+  border: 1px solid #303030;
+  border-radius: 4px;
+  background: #181818;
+  color: #c7c7d1;
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+}
+.dark .batch-import-dialog [data-slot="dialog-title"] {
+  color: #c7c7d1;
+}
+.dark .batch-import-dialog [data-slot="dialog-close"] {
+  color: #8d9095;
+}
+.dark .batch-import-dialog [data-slot="dialog-close"]:hover {
+  background: transparent;
+  color: #c7c7d1;
+}
+.dark .batch-import-footer [data-slot="button"] {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+}
+.dark .batch-import-footer [data-variant="outline"] {
+  border: 1px solid #5d87ff;
+  background: #141414;
+  color: #5d87ff;
+}
+.dark .batch-import-footer [data-variant="outline"]:hover {
+  border-color: #5d87ff;
+  background: #090d19;
+  color: #5d87ff;
+}
+.dark .batch-import-footer [data-variant="default"] {
+  border-color: #5d87ff;
+  background: #5d87ff;
+  color: #fff;
+}
+.dark .batch-import-footer [data-variant="default"]:hover {
+  border-color: #415eb2;
+  background: #415eb2;
+  color: #fff;
+}
+.dark .batch-import-drop {
+  border-color: #4c4d4f;
+  background: transparent;
+}
+.dark .batch-import-drop:hover:not(:disabled) {
+  border-color: #5d87ff;
+  background: rgb(93 135 255 / 4%);
+}
+.dark .batch-import-drop__text {
+  color: #c7c7d1;
+}
+.dark .batch-import-drop__hint,
+.dark .batch-import-drop > svg {
+  color: #8d9095;
+}
+.batch-import-preview,
+.batch-import-unavailable {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.batch-import-unavailable {
+  padding-top: 10px;
+}
+.batch-import-unavailable > p {
+  margin: 0 12px 8px;
+  color: var(--secondary-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+.batch-import-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font-size: 12px;
+  text-align: left;
+}
+.batch-import-table th,
+.batch-import-table td {
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.batch-import-table th {
+  background: var(--surface);
+  color: var(--secondary-foreground);
+  font-weight: 600;
+}
+.batch-import-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.batch-import-status {
+  color: var(--primary);
+}
+.dark .batch-import-preview,
+.dark .batch-import-unavailable {
+  border-color: #303030;
+  background: #181818;
+}
+.dark .batch-import-unavailable > p {
+  color: #c7c7d1;
+}
+.dark .batch-import-table {
+  color: #c7c7d1;
+}
+.dark .batch-import-table th {
+  background: #141414;
+  color: #9b9ba3;
+}
+.dark .batch-import-table th,
+.dark .batch-import-table td {
+  border-color: #303030;
+}
+/* 主机管理新增节点：对齐 pixiu-ui safeguard/host 的 ElDialog 与 ElForm 深色规格。 */
+.dark .host-editor[data-slot="dialog-content"] {
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid #303030;
+  border-radius: 4px;
+  background: #181818;
+  color: #c7c7d1;
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+}
+.dark .host-editor [data-slot="dialog-header"] {
+  padding: 20px 20px 0;
+  border: 0;
+}
+.dark .host-editor [data-slot="dialog-title"] {
+  color: #c7c7d1;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+.dark .host-editor [data-slot="dialog-close"] {
+  top: 20px;
+  right: 16px;
+  color: #8d9095;
+}
+.dark .host-editor [data-slot="dialog-close"]:hover {
+  background: transparent;
+  color: #c7c7d1;
+}
+.dark .host-form {
+  gap: 18px;
+  padding: 48px 21px 30px 16px;
+}
+.dark .host-form-row {
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+}
+.dark .host-form-row__label {
+  padding-top: 10px;
+  color: #c7c7d1;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+}
+.dark .host-form-row__control {
+  gap: 6px;
+}
+.dark .host-editor [data-slot="input"] {
+  height: 36px;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: #141414;
+  color: #c7c7d1;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+.dark .host-editor [data-slot="input"]::placeholder {
+  color: #8d9095;
+}
+.dark .host-editor [data-slot="input"]:hover {
+  border-color: #58585b;
+}
+.dark .host-editor [data-slot="input"]:focus-visible {
+  border-color: #5d87ff;
+  box-shadow: 0 0 0 1px #5d87ff;
+}
+.dark .host-editor .host-note[data-slot="textarea"] {
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: #141414;
+  color: #c7c7d1;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  resize: vertical;
+}
+.dark .host-editor .host-note[data-slot="textarea"]::placeholder {
+  color: #8d9095;
+}
+.dark .host-editor .host-note[data-slot="textarea"]:hover {
+  border-color: #58585b;
+}
+.dark .host-editor .host-note[data-slot="textarea"]:focus-visible {
+  border-color: #5d87ff;
+  box-shadow: 0 0 0 1px #5d87ff;
+}
+.dark .host-radios {
+  min-height: 36px;
+  gap: 24px;
+}
+.dark .host-radio {
+  gap: 8px;
+  color: #c7c7d1;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 14px;
+}
+.dark .host-radio input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border-color: #4c4d4f;
+  background: #141414;
+}
+.dark .host-radio input:checked {
+  border-color: #5d87ff;
+  background: #5d87ff;
+  box-shadow: inset 0 0 0 3px #fff;
+}
+.dark .host-radio:has(input:checked) {
+  color: #5d87ff;
+}
+.dark .host-form-more {
+  margin-left: 80px;
+  color: #5d87ff;
+  font-family: inherit;
+  font-size: 12px;
+}
+.dark .host-editor__footer {
+  padding: 12px 16px 16px;
+  border: 0;
+}
+.dark .host-editor__footer [data-slot="button"] {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 15px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+}
+.dark .host-editor__footer [data-variant="outline"] {
+  /* This must set the full border: a later global reset removes outline borders. */
+  border: 1px solid #5d87ff;
+  background: #141414;
+  color: #5d87ff;
+}
+.dark .host-editor__footer [data-variant="outline"]:hover {
+  border: 1px solid #5d87ff;
+  background: #090d19;
+  color: #5d87ff;
+}
+.dark .host-editor__footer [data-variant="default"] {
+  border-color: #5d87ff;
+  background: #5d87ff;
+  color: #fff;
+}
+.dark .host-editor__footer [data-variant="default"]:hover {
+  border-color: #415eb2;
+  background: #415eb2;
+  color: #fff;
+}
+
+/* 网络代理：对齐 pixiu-ui 的 ElSelect 深色输入框和下拉选项。 */
+.dark .host-editor .host-proxy-select[data-slot="select-trigger"] {
+  height: 36px;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: #141414;
+  color: #c7c7d1;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+.dark .host-editor .host-proxy-select[data-slot="select-trigger"]:hover {
+  border: 1px solid #58585b;
+  background: #141414;
+}
+.dark .host-editor .host-proxy-select[data-slot="select-trigger"]:focus-visible {
+  border-color: #5d87ff;
+  box-shadow: 0 0 0 1px #5d87ff;
+}
+.dark .host-editor .host-proxy-select [data-slot="select-value"] {
+  color: #c7c7d1;
+}
+.dark .host-editor .host-proxy-select svg {
+  width: 14px;
+  height: 14px;
+  color: #8d9095;
+  opacity: 1;
+}
+.dark .host-proxy-select-content[data-slot="select-content"] {
+  min-width: var(--radix-select-trigger-width);
+  padding: 5px;
+  border: 1px solid #303030;
+  border-radius: 4px;
+  background: #181818;
+  color: #c7c7d1;
+  box-shadow: 0 8px 18px rgb(0 0 0 / 35%);
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+}
+.dark .host-proxy-select-content [data-slot="select-item"] {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 28px 0 8px;
+  border-radius: 4px;
+  color: #c7c7d1;
+  font-size: 12px;
+  line-height: 34px;
+}
+.dark .host-proxy-select-content [data-slot="select-item"]:focus {
+  background: #242424;
+  color: #c7c7d1;
+}
+.dark .host-proxy-select-content [data-slot="select-item"][data-state="checked"] {
+  margin-bottom: 4px;
+  background: #1c2949;
+  color: #5d87ff;
+  font-weight: 400;
+}
+.dark .host-proxy-select-content [data-slot="select-item-indicator"] {
+  color: #5d87ff;
+}
+.dark .host-editor .host-tunnel-kind[data-slot="select-trigger"] {
+  height: 36px;
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: #141414;
+  color: #c7c7d1;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+.dark .host-editor .host-tunnel-kind[data-slot="select-trigger"]:hover {
+  border-color: #58585b;
+}
+.dark .host-editor .host-tunnel-kind[data-slot="select-trigger"]:focus-visible {
+  border-color: #5d87ff;
+  box-shadow: 0 0 0 1px #5d87ff;
+}
+.dark .host-tunnel-kind-content[data-slot="select-content"] {
+  min-width: var(--radix-select-trigger-width);
+  padding: 5px;
+  border: 1px solid #303030;
+  border-radius: 4px;
+  background: #181818;
+  color: #c7c7d1;
+  box-shadow: 0 8px 18px rgb(0 0 0 / 35%);
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+}
+.dark .host-tunnel-kind-content [data-slot="select-item"] {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 28px 0 8px;
+  border-radius: 4px;
+  color: #c7c7d1;
+  font-size: 12px;
+  line-height: 34px;
+}
+.dark .host-tunnel-kind-content [data-slot="select-item"]:focus {
+  background: #242424;
+}
+.dark .host-tunnel-kind-content [data-slot="select-item"][data-state="checked"] {
+  margin-bottom: 4px;
+  background: #1c2949;
+  color: #5d87ff;
+  font-weight: 400;
+}
+.dark .host-tunnel-kind-content [data-slot="select-item-indicator"] {
+  color: #5d87ff;
+}
+.dark .host-editor .host-tunnels {
+  background: #1f1f1f;
+}
+.dark .host-editor .host-tunnel-remove {
+  color: #5d87ff;
 }
 /* File type colors without tinting the dark workspace blue. */
 .file-panel > header > div > svg {
@@ -5074,7 +6286,7 @@ body,
   width: 100%;
   min-height: 0;
   display: grid !important;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: 212px minmax(0, 1fr);
   gap: 0;
 }
 .settings-navigation-layout > .settings-tabs {
@@ -5110,7 +6322,7 @@ body,
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 13px clamp(20px, 3vw, 45px) 26px;
+  padding: 13px clamp(12px, 1.4vw, 24px) 26px;
   background: var(--background);
 }
 .settings-main > [data-slot="tabs-content"] {
@@ -5254,7 +6466,7 @@ body,
     gap: 0;
   }
   .settings-main {
-    padding: 0 16px 24px;
+    padding: 0 12px 24px;
   }
   .window-leading {
     width: 274px;
@@ -5996,4 +7208,29 @@ body .host-search-dialog > .host-search-results {
   min-width: 76px;
   padding: 0 14px;
   font-size: 13px;
+}
+
+/* 主机管理使用 shell 原有的设置内容区底色，不铺纯黑工作面。 */
+.settings-page[data-settings-tab="hosts"] .settings-main {
+  background: var(--background);
+}
+.settings-page[data-settings-tab="hosts"] .settings-section.host-manage {
+  margin: -13px clamp(-24px, -1.4vw, -12px) -26px;
+  padding: 13px clamp(12px, 1.4vw, 24px) 26px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.dark .settings-page[data-settings-tab="hosts"] .settings-section.host-manage {
+  --foreground: #c7c7d1;
+  --muted-foreground: #9b9ba3;
+  --border: #303030;
+  --card-solid: #181818;
+  --surface-solid: #1f1f1f;
+  --input-solid: #141414;
+  --active-solid: #252525;
+  --popover-solid: #1f1f1f;
+  background: transparent;
+  color: #c7c7d1;
 }

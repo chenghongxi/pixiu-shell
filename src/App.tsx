@@ -34,7 +34,6 @@ import {
   RefreshCw,
   Search,
   Server,
-  ServerPlus,
   Square,
   Settings2,
   ShieldCheck,
@@ -180,7 +179,6 @@ export default function App() {
   const [createRequest, setCreateRequest] = useState(0);
   const [user, setUser] = useState<User | null>(null);
   const [localHosts, setLocalHosts] = useState<LocalHost[]>([]);
-  const [localGroups, setLocalGroups] = useState<string[]>([]);
   const [hostEditOpen, setHostEditOpen] = useState(false);
   const [platformHosts, setPlatformHosts] = useState<Host[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -325,10 +323,7 @@ export default function App() {
   const refreshLocal = useCallback(async () => {
     if (!desktop) return;
     try {
-      const [hosts, groups] = await Promise.all([
-        command<LocalHost[]>("local_hosts"),
-        command<string[]>("groups_list"),
-      ]);
+      const hosts = await command<LocalHost[]>("local_hosts");
       setLocalHosts(
         hosts.map((host) => ({
           ...host,
@@ -337,7 +332,6 @@ export default function App() {
           hasPassword: host.hasPassword ?? false,
         })),
       );
-      setLocalGroups(groups);
     } catch (error) {
       toast.error(errorMessage(error));
     }
@@ -1445,8 +1439,7 @@ export default function App() {
                     variant="outline"
                     onClick={() => settings("hosts", true)}
                   >
-                    <ServerPlus data-icon="inline-start" />
-                    添加本地主机
+                    新增主机
                   </Button>
                 ) : null}
               </div>
@@ -1479,8 +1472,12 @@ export default function App() {
               preferences={preferences}
               onSave={savePreferences}
               hosts={localHosts}
-              groups={localGroups}
               refresh={refreshLocal}
+              onConnect={(host) => {
+                // 设置页点「登录」直接切回工作区开终端，避免用户再找一次主机。
+                setView("workspace");
+                void connect(fromLocal(host), "terminal");
+              }}
               tab={settingsTab}
               onTab={setSettingsTab}
               createRequest={createRequest}
@@ -1553,11 +1550,12 @@ export default function App() {
                     </div>
                     {mode === "local" ? (
                       <Button
-                        variant={selected ? "outline" : "default"}
+                        className="host-primary-action"
+                        variant="outline"
+                        size="sm"
                         onClick={() => settings("hosts", true)}
                       >
-                        <ServerPlus data-icon="inline-start" />
-                        添加本地主机
+                        新增主机
                       </Button>
                     ) : (
                       <Button
@@ -2302,7 +2300,6 @@ export default function App() {
         <HostEditor
           key={selected.local.id}
           host={selected.local}
-          groups={localGroups}
           onClose={() => setHostEditOpen(false)}
           onSaved={() => void refreshLocal()}
         />

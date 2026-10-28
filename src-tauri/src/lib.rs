@@ -457,6 +457,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 commands::group_save,
                 commands::group_delete,
                 commands::openssh_config_import,
+                commands::batch_hosts_preview,
                 commands::batch_hosts_import,
                 commands::batch_hosts_template_save,
                 commands::identity_file_pick,

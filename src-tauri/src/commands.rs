@@ -4,7 +4,7 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use calamine::{Reader, open_workbook_auto};
 use rust_xlsxwriter::{Format, Workbook};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -144,58 +144,59 @@ struct OpenSshHost {
     identity_file: String,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BatchImportDocument {
-    #[serde(default, alias = "Hosts")]
     hosts: Vec<BatchImportHost>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BatchImportHost {
-    #[serde(default, rename = "Host", alias = "host")]
-    host: String,
-    #[serde(default, rename = "HostName", alias = "hostName", alias = "hostname")]
-    hostname: String,
-    #[serde(default, rename = "User", alias = "user")]
-    user: String,
-    #[serde(default, rename = "Port", alias = "port")]
-    port: Option<serde_yaml::Value>,
-    #[serde(default, rename = "Password", alias = "password")]
-    password: String,
-    #[serde(default, rename = "Group", alias = "group")]
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    ip: String,
+    #[serde(default)]
+    ssh_user: String,
+    #[serde(default)]
+    ssh_port: Option<serde_yaml::Value>,
+    #[serde(default)]
+    ssh_password: String,
+    #[serde(default)]
     group: String,
 }
 
 impl BatchImportHost {
     fn port(&self, row: usize) -> Result<u16> {
-        let Some(value) = &self.port else {
+        let Some(value) = &self.ssh_port else {
             return Ok(22);
         };
         let value = match value {
             serde_yaml::Value::Number(value) => value.to_string(),
             serde_yaml::Value::String(value) => value.trim().to_string(),
-            _ => anyhow::bail!("第 {row} 条记录的 Port 必须是 1 到 65535 的整数"),
+            _ => anyhow::bail!("第 {row} 条记录的 SSH 端口必须是 1 到 65535 的整数"),
         };
         value
             .parse::<u16>()
             .ok()
             .filter(|port| *port > 0)
-            .context(format!("第 {row} 条记录的 Port 必须是 1 到 65535 的整数"))
+            .context(format!("第 {row} 条记录的 SSH 端口必须是 1 到 65535 的整数"))
     }
 
     fn local_host(&self, row: usize) -> Result<storage::LocalHost> {
         let host = storage::LocalHost {
             id: Some(Uuid::new_v4()),
-            name: self.host.trim().into(),
-            address: self.hostname.trim().into(),
+            name: self.name.trim().into(),
+            address: self.ip.trim().into(),
             port: self.port(row)?,
-            username: self.user.trim().into(),
+            username: self.ssh_user.trim().into(),
             group: self.group.trim().into(),
             identity_file: String::new(),
             note: "从批量导入创建".into(),
             tags: vec!["批量导入".into()],
             tunnels: vec![],
-            has_password: !self.password.is_empty(),
+            has_password: !self.ssh_password.is_empty(),
             proxy: None,
         };
         host.validate()
@@ -204,12 +205,66 @@ impl BatchImportHost {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BatchImportPreview {
+    path: String,
+    valid: Vec<BatchImportPreviewRow>,
+    skipped: Vec<BatchImportSkippedRow>,
+    invalid: Vec<BatchImportInvalidRow>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchImportPreviewRow {
+    row: usize,
+    name: String,
+    address: String,
+    username: String,
+    port: u16,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchImportSkippedRow {
+    row: usize,
+    name: String,
+    address: String,
+    reason: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchImportInvalidRow {
+    row: usize,
+    name: String,
+    address: String,
+    reason: String,
+}
+
+struct PreparedBatchImport {
+    preview: BatchImportPreview,
+    hosts: Vec<BatchImportHost>,
+}
+
 fn excel_value(value: Option<&calamine::Data>) -> String {
     value
         .map(ToString::to_string)
         .unwrap_or_default()
         .trim()
         .into()
+}
+
+fn batch_import_column(header: &str) -> Option<&'static str> {
+    match header.trim().to_ascii_lowercase().as_str() {
+        "主机名称" => Some("name"),
+        "ip 地址" => Some("ip"),
+        "ssh 用户" => Some("ssh_user"),
+        "ssh 密码" => Some("ssh_password"),
+        "ssh 端口" => Some("ssh_port"),
+        "分组" => Some("group"),
+        _ => None,
+    }
 }
 
 fn import_excel(path: &Path) -> Result<Vec<BatchImportHost>> {
@@ -222,9 +277,11 @@ fn import_excel(path: &Path) -> Result<Vec<BatchImportHost>> {
         anyhow::bail!("Excel 模板缺少表头");
     };
     for (index, value) in header.iter().enumerate() {
-        columns.insert(excel_value(Some(value)).to_ascii_lowercase(), index);
+        if let Some(key) = batch_import_column(&excel_value(Some(value))) {
+            columns.insert(key, index);
+        }
     }
-    for required in ["host", "hostname", "user", "port", "password", "group"] {
+    for required in ["name", "ip", "ssh_user", "ssh_password", "ssh_port", "group"] {
         ensure!(columns.contains_key(required), "Excel 缺少 {required} 列");
     }
     let value = |row: &[calamine::Data], key: &str| {
@@ -235,13 +292,13 @@ fn import_excel(path: &Path) -> Result<Vec<BatchImportHost>> {
         if row.iter().all(|cell| excel_value(Some(cell)).is_empty()) {
             continue;
         }
-        let port = value(row, "port");
+        let port = value(row, "ssh_port");
         hosts.push(BatchImportHost {
-            host: value(row, "host"),
-            hostname: value(row, "hostname"),
-            user: value(row, "user"),
-            port: (!port.is_empty()).then_some(serde_yaml::Value::String(port)),
-            password: value(row, "password"),
+            name: value(row, "name"),
+            ip: value(row, "ip"),
+            ssh_user: value(row, "ssh_user"),
+            ssh_port: (!port.is_empty()).then_some(serde_yaml::Value::String(port)),
+            ssh_password: value(row, "ssh_password"),
             group: value(row, "group"),
         });
     }
@@ -272,9 +329,76 @@ fn import_batch_file(path: &Path) -> Result<Vec<BatchImportHost>> {
     }
 }
 
-fn save_batch_hosts(path: &Path, mut hosts: Vec<BatchImportHost>) -> Result<usize> {
+fn prepare_batch_import(path: &Path, database: &Path) -> Result<PreparedBatchImport> {
+    let hosts = import_batch_file(path)?;
     ensure!(!hosts.is_empty(), "导入文件中没有主机记录");
-    ensure!(hosts.len() <= 1_000, "一次最多导入 1000 台主机");
+    ensure!(hosts.len() <= 200, "一次最多导入 200 台主机");
+
+    let existing_addresses: std::collections::HashSet<_> = storage::list(&storage::open(database)?)?
+        .into_iter()
+        .map(|host| host.address.trim().to_ascii_lowercase())
+        .collect();
+    let mut addresses = std::collections::HashSet::new();
+    let mut valid = Vec::new();
+    let mut preview = BatchImportPreview {
+        path: path.to_string_lossy().into_owned(),
+        valid: Vec::new(),
+        skipped: Vec::new(),
+        invalid: Vec::new(),
+    };
+
+    for (index, input) in hosts.into_iter().enumerate() {
+        let row = index + 2;
+        let host = match input.local_host(row) {
+            Ok(host) => host,
+            Err(error) => {
+                preview.invalid.push(BatchImportInvalidRow {
+                    row,
+                    name: input.name.trim().into(),
+                    address: input.ip.trim().into(),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let address_key = host.address.to_ascii_lowercase();
+        let reason = if existing_addresses.contains(&address_key) {
+            Some("主机列表中 IP 已存在")
+        } else if !addresses.insert(address_key) {
+            Some("文件内 IP 重复")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            preview.skipped.push(BatchImportSkippedRow {
+                row,
+                name: host.name,
+                address: host.address,
+                reason: reason.into(),
+            });
+            continue;
+        }
+        preview.valid.push(BatchImportPreviewRow {
+            row,
+            name: host.name,
+            address: host.address,
+            username: host.username,
+            port: host.port,
+        });
+        valid.push(input);
+    }
+    Ok(PreparedBatchImport {
+        preview,
+        hosts: valid,
+    })
+}
+
+fn save_batch_hosts(
+    path: &Path,
+    mut hosts: Vec<BatchImportHost>,
+) -> Result<usize> {
+    ensure!(!hosts.is_empty(), "导入文件中没有主机记录");
+    ensure!(hosts.len() <= 200, "一次最多导入 200 台主机");
     let prepared: Vec<_> = hosts
         .iter()
         .enumerate()
@@ -285,7 +409,7 @@ fn save_batch_hosts(path: &Path, mut hosts: Vec<BatchImportHost>) -> Result<usiz
     let result = (|| -> Result<()> {
         for (host, input) in prepared.into_iter().zip(hosts.iter_mut()) {
             let id = host.id.context("导入主机缺少 ID")?;
-            let password = Zeroizing::new(std::mem::take(&mut input.password));
+            let password = Zeroizing::new(std::mem::take(&mut input.ssh_password));
             if !password.is_empty() {
                 crate::credentials::write(id, &password)?;
             }
@@ -314,20 +438,20 @@ fn write_batch_import_template(path: &Path) -> Result<()> {
     let worksheet = workbook.add_worksheet();
     worksheet.set_name("Hosts")?;
     let header = Format::new().set_bold();
-    for (column, name) in ["Host", "HostName", "User", "Port", "Password", "Group"]
+    for (column, name) in ["主机名称", "IP 地址", "SSH 用户", "SSH 密码", "SSH 端口", "分组"]
         .iter()
         .enumerate()
     {
         worksheet.write_string_with_format(0, column as u16, *name, &header)?;
     }
     for (row, values) in [
-        ["web-prod", "10.20.30.40", "deploy", "22", "", "生产环境"],
+        ["web-server-01", "10.20.30.40", "root", "", "22", "生产环境"],
         [
-            "db-staging",
-            "db-staging.example.com",
-            "ops",
-            "2222",
+            "web-server-02",
+            "10.20.30.41",
+            "root",
             "",
+            "22",
             "预发布",
         ],
     ]
@@ -348,19 +472,19 @@ fn write_yaml_batch_import_template(path: &Path) -> Result<()> {
     std::fs::write(
         path,
         r#"hosts:
-  - Host: web-prod
-    HostName: 10.20.30.40
-    User: deploy
-    Port: 22
-    Password: ""
-    Group: 生产环境
+  - name: web-server-01
+    ip: 10.20.30.40
+    ssh_user: root
+    ssh_password: ""
+    ssh_port: 22
+    group: 生产环境
 
-  - Host: db-staging
-    HostName: db-staging.example.com
-    User: ops
-    Port: 2222
-    Password: ""
-    Group: 预发布
+  - name: web-server-02
+    ip: 10.20.30.41
+    ssh_user: root
+    ssh_password: ""
+    ssh_port: 22
+    group: 预发布
 "#,
     )
     .context("无法写入 YAML 模板")
@@ -505,22 +629,41 @@ pub(crate) async fn openssh_config_import(state: State<'_, AppState>) -> Command
 }
 
 #[tauri::command]
-pub(crate) async fn batch_hosts_import(state: State<'_, AppState>) -> CommandResult<Value> {
-    let picked = tokio::task::spawn_blocking(|| {
-        rfd::FileDialog::new()
-            .set_title("批量导入主机")
-            .add_filter("主机导入文件", &["xlsx", "xls", "yaml", "yml"])
-            .pick_file()
-    })
-    .await
-    .map_err(error)?;
+pub(crate) async fn batch_hosts_preview(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> CommandResult<Option<BatchImportPreview>> {
+    let picked = match path {
+        Some(value) => Some(PathBuf::from(value)),
+        None => tokio::task::spawn_blocking(|| {
+            rfd::FileDialog::new()
+                .set_title("批量导入主机")
+                .add_filter("主机导入文件", &["xlsx", "xls", "yaml", "yml"])
+                .pick_file()
+        })
+        .await
+        .map_err(error)?,
+    };
     let Some(path) = picked else {
-        return Ok(json!({"cancelled": true, "count": 0}));
+        return Ok(None);
     };
     let database = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || prepare_batch_import(&path, &database).map(|value| value.preview))
+        .await
+        .map_err(error)?
+        .map(Some)
+        .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn batch_hosts_import(
+    state: State<'_, AppState>,
+    path: String,
+) -> CommandResult<Value> {
+    let database = state.database.to_path_buf();
     let count = tokio::task::spawn_blocking(move || {
-        let hosts = import_batch_file(&path)?;
-        save_batch_hosts(&database, hosts)
+        let prepared = prepare_batch_import(Path::new(&path), &database)?;
+        save_batch_hosts(&database, prepared.hosts)
     })
     .await
     .map_err(error)?
@@ -531,8 +674,8 @@ pub(crate) async fn batch_hosts_import(state: State<'_, AppState>) -> CommandRes
 #[tauri::command]
 pub(crate) async fn batch_hosts_template_save(format: String) -> CommandResult<Value> {
     let (file_name, filter_name, extension) = match format.as_str() {
-        "excel" => ("pixiu-shell-hosts-template.xlsx", "Excel 工作簿", "xlsx"),
-        "yaml" => ("pixiu-shell-hosts-template.yaml", "YAML 文件", "yaml"),
+        "excel" => ("主机批量导入模板.xlsx", "Excel 工作簿", "xlsx"),
+        "yaml" => ("主机批量导入模板.yaml", "YAML 文件", "yaml"),
         _ => return Err("不支持的模板格式".into()),
     };
     let saved = tokio::task::spawn_blocking(move || {
@@ -1097,12 +1240,12 @@ mod tests {
     fn parses_yaml_batch_import_records() -> Result<()> {
         let document: BatchImportDocument = serde_yaml::from_str(
             r#"hosts:
-  - Host: app-prod
-    HostName: 10.20.30.40
-    User: deploy
-    Port: 2222
-    Password: secret
-    Group: production"#,
+  - name: app-prod
+    ip: 10.20.30.40
+    ssh_user: deploy
+    ssh_port: 2222
+    ssh_password: secret
+    group: production"#,
         )?;
         assert_eq!(document.hosts.len(), 1);
         let host = document.hosts[0].local_host(2)?;
@@ -1117,9 +1260,9 @@ mod tests {
     #[test]
     fn defaults_batch_import_port_to_ssh_default() -> Result<()> {
         let host = BatchImportHost {
-            host: "app-dev".into(),
-            hostname: "app-dev.example.com".into(),
-            user: "ops".into(),
+            name: "app-dev".into(),
+            ip: "10.20.30.40".into(),
+            ssh_user: "ops".into(),
             ..Default::default()
         }
         .local_host(2)?;
@@ -1135,7 +1278,7 @@ mod tests {
         write_batch_import_template(&path)?;
         let hosts = import_excel(&path)?;
         assert_eq!(hosts.len(), 2);
-        assert_eq!(hosts[0].host, "web-prod");
+        assert_eq!(hosts[0].name, "web-server-01");
         assert_eq!(hosts[1].group, "预发布");
         Ok(())
     }
@@ -1147,9 +1290,20 @@ mod tests {
         write_yaml_batch_import_template(&path)?;
         let hosts = import_batch_file(&path)?;
         assert_eq!(hosts.len(), 2);
-        assert_eq!(hosts[0].host, "web-prod");
+        assert_eq!(hosts[0].name, "web-server-01");
         assert_eq!(hosts[1].group, "预发布");
         Ok(())
+    }
+
+    #[test]
+    fn rejects_legacy_yaml_batch_import_fields() {
+        let result = serde_yaml::from_str::<BatchImportDocument>(
+            r#"hosts:
+  - Host: app-prod
+    HostName: 10.20.30.40
+    User: deploy"#,
+        );
+        assert!(result.is_err());
     }
 }
 

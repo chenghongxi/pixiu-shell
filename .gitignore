@@ -17,6 +17,7 @@ test-results-chromium
 .learnings
 tests
 playwright-report
+.workbuddy/
 *.local
 
 # Editor directories and files
