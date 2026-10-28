@@ -278,6 +278,49 @@ pub(crate) fn save_group(
     tx.commit()?;
     Ok(())
 }
+
+pub(crate) fn move_group(connection: &Connection, source: &str, target: &str) -> Result<()> {
+    let source = source.trim();
+    let target = target.trim();
+    ensure!(!source.is_empty() && !target.is_empty(), "请选择有效的目标文件夹");
+    ensure!(
+        source != target && !target.starts_with(&format!("{source}/")),
+        "不能移动到当前文件夹或其子文件夹"
+    );
+    let name = source.rsplit('/').next().unwrap_or(source);
+    let destination = format!("{target}/{name}");
+    ensure!(destination != source, "文件夹已位于该目录下");
+    ensure!(destination.len() <= 120, "移动后的分组路径不能超过 120 字节");
+
+    let tx = connection.unchecked_transaction()?;
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM host_groups
+            WHERE substr(name, 1, length(?1)) = ?1
+              AND (length(name) = length(?1) OR substr(name, length(?1) + 1, 1) = '/')
+        )",
+        [destination.as_str()],
+        |row| row.get(0),
+    )?;
+    ensure!(!exists, "目标文件夹中已存在同名目录");
+
+    let predicate = "substr(group_name, 1, length(?1)) = ?1
+        AND (length(group_name) = length(?1) OR substr(group_name, length(?1) + 1, 1) = '/')";
+    tx.execute(
+        &format!(
+            "UPDATE local_hosts SET group_name = ?2 || substr(group_name, length(?1) + 1) WHERE {predicate}"
+        ),
+        params![source, destination],
+    )?;
+    let predicate = "substr(name, 1, length(?1)) = ?1
+        AND (length(name) = length(?1) OR substr(name, length(?1) + 1, 1) = '/')";
+    tx.execute(
+        &format!("UPDATE host_groups SET name = ?2 || substr(name, length(?1) + 1) WHERE {predicate}"),
+        params![source, destination],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
 pub(crate) fn delete_group(connection: &Connection, name: &str) -> Result<()> {
     let tx = connection.unchecked_transaction()?;
     tx.execute(

@@ -125,6 +125,20 @@ pub(crate) async fn group_save(
     })
     .await
     .map_err(error)?
+        .map_err(error)
+}
+#[tauri::command]
+pub(crate) async fn group_move(
+    state: State<'_, AppState>,
+    source: String,
+    target: String,
+) -> CommandResult<()> {
+    let path = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        storage::move_group(&storage::open(&path)?, &source, &target)
+    })
+    .await
+    .map_err(error)?
     .map_err(error)
 }
 #[tauri::command]
@@ -1179,7 +1193,7 @@ pub(crate) async fn local_connectivity_test(
             password.as_deref().map(String::as_str),
             proxy_password.as_deref().map(String::as_str),
         )?;
-        Ok(json!({"status":"success","message":"SSH 认证与 SFTP 通道检测通过"}))
+        Ok(json!({"status":"success","message":"SSH / SFTP 连通正常"}))
     })
     .await
     .map_err(error)?

@@ -27,6 +27,7 @@ import {
   ChevronRight,
   ChevronDown,
   Folder,
+  FolderPlus,
   FolderOpen,
   LoaderCircle,
   Moon,
@@ -43,11 +44,11 @@ import {
   TerminalSquare,
   X,
   ArrowUpRight,
-  Download,
+  ArrowRightLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { SearchInput } from "@/components/ui/input";
+import { Input, SearchInput } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -164,6 +165,24 @@ function cachedPreferences(): Preferences {
   }
   return defaultPreferences;
 }
+function GroupPath({ path }: { path: string }) {
+  const segments = path.split("/").filter(Boolean);
+  if (!segments.length) return <span className="workspace-group-path__empty">未分组</span>;
+  return (
+    <span className="workspace-group-path" title={path}>
+      {segments.map((segment, index) => (
+        <span
+          key={`${segment}-${index}`}
+          className="workspace-group-path__segment"
+          data-current={index === segments.length - 1 || undefined}
+        >
+          {index ? <ChevronRight aria-hidden="true" /> : null}
+          <span>{segment}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 export default function App() {
   const [preferences, setPreferences] = useState(cachedPreferences);
   const [lockStatus, setLockStatus] = useState<LockStatus>({
@@ -187,6 +206,7 @@ export default function App() {
   const [createRequest, setCreateRequest] = useState(0);
   const [user, setUser] = useState<User | null>(null);
   const [localHosts, setLocalHosts] = useState<LocalHost[]>([]);
+  const [localGroups, setLocalGroups] = useState<string[]>([]);
   const [hostEditOpen, setHostEditOpen] = useState(false);
   const [hostCreateOpen, setHostCreateOpen] = useState(false);
   const [platformHosts, setPlatformHosts] = useState<Host[]>([]);
@@ -205,10 +225,23 @@ export default function App() {
   const [workspaceHostKeyword, setWorkspaceHostKeyword] = useState("");
   const [workspaceHostNotice, setWorkspaceHostNotice] = useState(true);
   const [workspaceBatchImportOpen, setWorkspaceBatchImportOpen] = useState(false);
-  const [workspaceTemplateOpen, setWorkspaceTemplateOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(),
   );
+  const [hostTreeMenu, setHostTreeMenu] = useState<
+    | { kind: "root"; x: number; y: number }
+    | { kind: "group"; group: string; x: number; y: number }
+    | { kind: "host"; host: LocalHost; x: number; y: number }
+    | null
+  >(null);
+  const [folderCreateParent, setFolderCreateParent] = useState<
+    string | null | undefined
+  >(undefined);
+  const [folderName, setFolderName] = useState("");
+  const [folderSaving, setFolderSaving] = useState(false);
+  const [movingHost, setMovingHost] = useState<LocalHost | null>(null);
+  const [moveTarget, setMoveTarget] = useState("");
+  const [movingHostSaving, setMovingHostSaving] = useState(false);
   const [revealRevision, setRevealRevision] = useState(0);
   const hostTree = useRef<HTMLDivElement>(null);
   const sessionBarRef = useRef<HTMLDivElement>(null);
@@ -342,7 +375,10 @@ export default function App() {
   const refreshLocal = useCallback(async () => {
     if (!desktop) return;
     try {
-      const hosts = await command<LocalHost[]>("local_hosts");
+      const [hosts, groups] = await Promise.all([
+        command<LocalHost[]>("local_hosts"),
+        command<string[]>("groups_list"),
+      ]);
       setLocalHosts(
         hosts.map((host) => ({
           ...host,
@@ -351,10 +387,114 @@ export default function App() {
           hasPassword: host.hasPassword ?? false,
         })),
       );
+      setLocalGroups(groups);
     } catch (error) {
       toast.error(errorMessage(error));
     }
   }, []);
+  function openFolderCreate(parent: string | null) {
+    setHostTreeMenu(null);
+    setFolderCreateParent(parent);
+    setFolderName("");
+  }
+  async function saveFolder() {
+    const name = folderName.trim();
+    if (!name) {
+      toast.error("请输入文件夹名称");
+      return;
+    }
+    if (name.includes("/")) {
+      toast.error("文件夹名称不能包含 /");
+      return;
+    }
+    setFolderSaving(true);
+    try {
+      const path = folderCreateParent
+        ? `${folderCreateParent}/${name}`
+        : name;
+      await command("group_save", { previous: null, name: path });
+      setExpandedGroups((current) => {
+        const next = new Set(current);
+        if (folderCreateParent)
+          next.add(`local:group:${folderCreateParent}`);
+        return next;
+      });
+      await refreshLocal();
+      setFolderCreateParent(undefined);
+      toast.success("文件夹已创建");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setFolderSaving(false);
+    }
+  }
+  function openMoveHost(host: LocalHost) {
+    setHostTreeMenu(null);
+    setMovingHost(host);
+    setMoveTarget(host.group || "__unassigned__");
+  }
+  async function moveHostToGroup() {
+    if (!movingHost) return;
+    setMovingHostSaving(true);
+    try {
+      await moveLocalHostToGroup(
+        movingHost,
+        moveTarget === "__unassigned__" ? "" : moveTarget,
+      );
+      await refreshLocal();
+      setMovingHost(null);
+      toast.success("主机分组已更新");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setMovingHostSaving(false);
+    }
+  }
+  async function moveLocalHostToGroup(host: LocalHost, group: string) {
+    await command("save_host", {
+      host: { ...host, group },
+      password: null,
+    });
+  }
+  async function dropHostIntoGroup(host: Host, group: string) {
+    if (!host.local || host.local.group === group) return;
+    try {
+      await moveLocalHostToGroup(host.local, group);
+      await refreshLocal();
+      toast.success(`已将“${host.name}”移动到“${group}”`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+  async function dropGroupIntoGroup(source: string, target: string) {
+    const name = source.split("/").filter(Boolean).at(-1);
+    if (!name || `${target}/${name}` === source) return;
+    try {
+      await command("group_move", { source, target });
+      setExpandedGroups((current) => {
+        const next = new Set(current);
+        next.add(`local:group:${target}`);
+        return next;
+      });
+      await refreshLocal();
+      toast.success(`已将“${name}”移动到“${target}”`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+  useEffect(() => {
+    if (!hostTreeMenu) return;
+    const close = () => setHostTreeMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [hostTreeMenu]);
   useEffect(() => {
     // Synchronize native SQLite data once bootstrap has completed.
     // oxlint-disable-next-line react/set-state-in-effect
@@ -567,24 +707,10 @@ export default function App() {
     setView("settings");
     if (add) setCreateRequest((value) => value + 1);
   }
-  async function downloadWorkspaceHostTemplate(format: "excel" | "yaml") {
-    try {
-      const result = await command<{ cancelled: boolean }>(
-        "batch_hosts_template_save",
-        { format },
-      );
-      if (!result.cancelled) {
-        toast.success(`${format === "excel" ? "Excel" : "YAML"} 模板已保存`);
-        setWorkspaceTemplateOpen(false);
-      }
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
-  }
   async function testWorkspaceHost(host: LocalHost) {
     setWorkspaceCheckingHost(host.id);
     try {
-      const result = await command<{ message: string }>(
+      await command<{ message: string }>(
         "local_connectivity_test",
         {
           host: { ...host, proxy: host.proxy ?? null },
@@ -592,7 +718,9 @@ export default function App() {
           proxyPassword: null,
         },
       );
-      toast.success(`${host.name}：${result.message}`);
+      toast.success(`${host.address} SSH 连通正常`, {
+        className: "connectivity-toast",
+      });
     } catch (error) {
       toast.error(`${host.name}：${errorMessage(error)}`);
     } finally {
@@ -1047,6 +1175,13 @@ export default function App() {
     setWorkspaceHostPageJump(String(next));
   }
   const groups = new Map<string, Host[]>();
+  if (
+    mode === "local" &&
+    preferences.groupBy === "group" &&
+    !normalizedKeyword
+  ) {
+    for (const name of localGroups) groups.set(name, []);
+  }
   for (const host of filtered) {
     for (const name of preferences.groupBy === "tag"
       ? host.tags.length
@@ -1412,7 +1547,7 @@ export default function App() {
           </div>
           <div className="sidebar-heading">
             <span>
-              {mode === "local" ? "本地主机" : "授权主机"}
+              {mode === "local" ? "主机" : "授权主机"}
               <small>{hosts.length}</small>
             </span>
             <div>
@@ -1507,6 +1642,36 @@ export default function App() {
                   setActive("home");
                 }}
                 onConnect={(host) => void connect(host)}
+                onRootContextMenu={(event) => {
+                  if (mode !== "local" || preferences.groupBy !== "group") return;
+                  setHostTreeMenu({ kind: "root", x: event.clientX, y: event.clientY });
+                }}
+                onGroupContextMenu={(group, event) => {
+                  if (mode !== "local" || preferences.groupBy !== "group") return;
+                  setHostTreeMenu({
+                    kind: "group",
+                    group,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                onHostContextMenu={(host, event) => {
+                  if (mode !== "local" || !host.local) return;
+                  setHostTreeMenu({
+                    kind: "host",
+                    host: host.local,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                onHostDrop={(host, group) => {
+                  if (mode !== "local" || preferences.groupBy !== "group") return;
+                  void dropHostIntoGroup(host, group);
+                }}
+                onGroupDrop={(source, target) => {
+                  if (mode !== "local" || preferences.groupBy !== "group") return;
+                  void dropGroupIntoGroup(source, target);
+                }}
               />
             )}
             {!loading && ready && !groups.size ? (
@@ -1532,6 +1697,38 @@ export default function App() {
             ) : null}
           </div>
         </aside>
+        {hostTreeMenu ? (
+          <div
+            className="host-tree-menu"
+            role="menu"
+            style={{ left: hostTreeMenu.x, top: hostTreeMenu.y }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {hostTreeMenu.kind === "host" ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => openMoveHost(hostTreeMenu.host)}
+              >
+                <ArrowRightLeft />
+                移动至分组
+              </button>
+            ) : (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() =>
+                  openFolderCreate(
+                    hostTreeMenu.kind === "group" ? hostTreeMenu.group : null,
+                  )
+                }
+              >
+                <FolderPlus />
+                {hostTreeMenu.kind === "group" ? "新建子文件夹" : "新建文件夹"}
+              </button>
+            )}
+          </div>
+        ) : null}
         <main className="workspace">
           {!desktop ? (
             <div className="preview-notice">
@@ -1699,13 +1896,6 @@ export default function App() {
                         </Button>
                         <div className="host-toolbar__right">
                           <div className="host-toolbar__links">
-                            <button
-                              type="button"
-                              className="host-link"
-                              onClick={() => setWorkspaceTemplateOpen(true)}
-                            >
-                              获取模板
-                            </button>
                             <button
                               type="button"
                               className="host-link"
@@ -1948,7 +2138,9 @@ export default function App() {
                                         : "交互"
                                     : "平台凭据"}
                                 </td>
-                                <td>{host.group}</td>
+                                <td className="workspace-host-table__group">
+                                  <GroupPath path={host.group} />
+                                </td>
                                 <td>
                                   {host.local ? (
                                     <div className="workspace-host-table__actions">
@@ -2615,8 +2807,97 @@ export default function App() {
             }}
           />
         ) : null}
-        <Toaster theme={resolvedTheme} position="top-right" richColors />
+        <Toaster theme={resolvedTheme} position="top-center" />
       </div>
+      <Dialog
+        open={folderCreateParent !== undefined}
+        onOpenChange={(open) => {
+          if (!open && !folderSaving) setFolderCreateParent(undefined);
+        }}
+      >
+        <DialogContent className="host-folder-dialog" showCloseButton={!folderSaving}>
+          <DialogHeader>
+            <DialogTitle>新建文件夹</DialogTitle>
+            <DialogDescription>
+              {folderCreateParent
+                ? `将在“${folderCreateParent}”下创建子文件夹。`
+                : "创建后的文件夹可用于整理本地主机。"}
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor="host-folder-name">文件夹名称</FieldLabel>
+            <Input
+              id="host-folder-name"
+              autoFocus
+              maxLength={120}
+              placeholder="请输入文件夹名称"
+              value={folderName}
+              onChange={(event) => setFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveFolder();
+              }}
+            />
+          </Field>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={folderSaving}
+              onClick={() => setFolderCreateParent(undefined)}
+            >
+              取消
+            </Button>
+            <Button disabled={folderSaving} onClick={() => void saveFolder()}>
+              {folderSaving ? "创建中..." : "创建文件夹"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!movingHost}
+        onOpenChange={(open) => {
+          if (!open && !movingHostSaving) setMovingHost(null);
+        }}
+      >
+        <DialogContent className="host-move-dialog" showCloseButton={!movingHostSaving}>
+          <DialogHeader>
+            <DialogTitle>移动主机</DialogTitle>
+            <DialogDescription>
+              将“{movingHost?.name}”移动到指定的分组。
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel>目标分组</FieldLabel>
+            <Select value={moveTarget} onValueChange={setMoveTarget}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="选择分组" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__unassigned__">未分组</SelectItem>
+                {localGroups.map((group) => (
+                  <SelectItem key={group} value={group}>
+                    {group}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={movingHostSaving}
+              onClick={() => setMovingHost(null)}
+            >
+              取消
+            </Button>
+            <Button
+              disabled={movingHostSaving}
+              onClick={() => void moveHostToGroup()}
+            >
+              {movingHostSaving ? "移动中..." : "确认移动"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {hostEditOpen && selected?.local ? (
         <HostEditor
           key={selected.local.id}
@@ -2676,35 +2957,6 @@ export default function App() {
           setResourcePage(1);
         }}
       />
-      <Dialog
-        open={workspaceTemplateOpen}
-        onOpenChange={setWorkspaceTemplateOpen}
-      >
-        <DialogContent className="host-template-dialog">
-          <DialogHeader>
-            <DialogTitle>获取模板</DialogTitle>
-            <DialogDescription className="sr-only">
-              选择并保存主机批量导入模板。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="host-template-dialog__items">
-            <button
-              type="button"
-              onClick={() => void downloadWorkspaceHostTemplate("excel")}
-            >
-              <Download />
-              <span>EXCEL 模板</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void downloadWorkspaceHostTemplate("yaml")}
-            >
-              <Download />
-              <span>YAML 模板</span>
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
       <HostKeyPrompt />
       {lockStatus.locked ? (
         <ScreenLock onUnlocked={() => void unlockWorkspace()} />

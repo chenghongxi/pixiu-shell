@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
-  Download,
   Keyboard,
   ShieldCheck,
   Monitor,
@@ -145,7 +144,6 @@ export function SettingsPage({
   const [hostPage, setHostPage] = useState(1);
   const [hostPageSize, setHostPageSize] = useState(10);
   const [hostPageJump, setHostPageJump] = useState("1");
-  const [templateOpen, setTemplateOpen] = useState(false);
   const [hostMoreOpen, setHostMoreOpen] = useState<string | null>(null);
   useEffect(() => {
     // Native bootstrap and global theme controls can update saved preferences.
@@ -254,7 +252,7 @@ export function SettingsPage({
   async function testHost(host: LocalHost) {
     setCheckingHost(host.id);
     try {
-      const result = await command<{ message: string }>(
+      await command<{ message: string }>(
         "local_connectivity_test",
         {
           host: { ...host, proxy: host.proxy ?? null },
@@ -262,7 +260,9 @@ export function SettingsPage({
           proxyPassword: null,
         },
       );
-      toast.success(`${host.name}：${result.message}`);
+      toast.success(`${host.address} SSH 连通正常`, {
+        className: "connectivity-toast",
+      });
     } catch (error) {
       toast.error(`${host.name}：${errorMessage(error)}`);
     } finally {
@@ -306,20 +306,6 @@ export function SettingsPage({
     const next = Math.min(Math.max(1, page), hostPageCount);
     setHostPage(next);
     setHostPageJump(String(next));
-  }
-  async function downloadHostTemplate(format: "excel" | "yaml") {
-    try {
-      const result = await command<{ cancelled: boolean }>(
-        "batch_hosts_template_save",
-        { format },
-      );
-      if (!result.cancelled) {
-        toast.success(`${format === "excel" ? "Excel" : "YAML"} 模板已保存`);
-        setTemplateOpen(false);
-      }
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
   }
   return (
     <div className="settings-page" data-settings-tab={tab}>
@@ -806,13 +792,6 @@ export function SettingsPage({
                     <button
                       type="button"
                       className="host-link"
-                      onClick={() => setTemplateOpen(true)}
-                    >
-                      获取模板
-                    </button>
-                    <button
-                      type="button"
-                      className="host-link"
                       onClick={() => setBatchImportOpen(true)}
                     >
                       批量导入
@@ -1125,26 +1104,6 @@ export function SettingsPage({
         onOpenChange={setBatchImportOpen}
         onImported={() => refresh()}
       />
-      <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
-        <DialogContent className="host-template-dialog">
-          <DialogHeader>
-            <DialogTitle>获取模板</DialogTitle>
-            <DialogDescription className="sr-only">
-              选择并保存主机批量导入模板。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="host-template-dialog__items">
-            <button type="button" onClick={() => void downloadHostTemplate("excel")}>
-              <Download />
-              <span>EXCEL 模板</span>
-            </button>
-            <button type="button" onClick={() => void downloadHostTemplate("yaml")}>
-              <Download />
-              <span>YAML 模板</span>
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
       <Dialog
         open={!!remove}
         onOpenChange={(open) => {
