@@ -476,6 +476,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 commands::file_upload_progress,
                 commands::file_download_progress,
                 commands::file_delete,
+                commands::file_close,
                 commands::host_metrics_probe,
                 commands::host_metrics_stop,
                 local_hosts,

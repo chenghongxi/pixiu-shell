@@ -71,10 +71,12 @@ export function HostEditor({
   host,
   onClose,
   onSaved,
+  inline = false,
 }: {
   host?: LocalHost;
   onClose: () => void;
   onSaved: () => void;
+  inline?: boolean;
 }) {
   const [draft, setDraft] = useState<LocalHost>({ ...emptyHost, ...host });
   const [authMode, setAuthMode] = useState<"password" | "key">(
@@ -202,30 +204,21 @@ export function HostEditor({
       setBusy(false);
     }
   }
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy && !testing) onClose();
-      }}
-    >
-      <DialogContent
-        className="host-editor"
-        showCloseButton={!busy && !testing}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
+  const form = (
         <form
           noValidate
           autoComplete="off"
           onSubmit={save}
           className="host-editor__form"
         >
-          <DialogHeader>
-            <DialogTitle>{host ? "编辑节点" : "新增节点"}</DialogTitle>
-            <DialogDescription className="sr-only">
-              连接信息保存在本机，密码写入系统凭据库。
-            </DialogDescription>
-          </DialogHeader>
+          {!inline ? (
+            <DialogHeader>
+              <DialogTitle>{host ? "编辑节点" : "新增节点"}</DialogTitle>
+              <DialogDescription className="sr-only">
+                连接信息保存在本机，密码写入系统凭据库。
+              </DialogDescription>
+            </DialogHeader>
+          ) : null}
           <div className="host-form">
             <Row
               label="主机名称"
@@ -698,11 +691,26 @@ export function HostEditor({
                     data-icon="inline-start"
                   />
                 ) : null}
-                确定
+                {inline ? "保存" : "确定"}
               </Button>
             </div>
           </DialogFooter>
         </form>
+  );
+  if (inline) return <div className="host-editor host-editor--inline">{form}</div>;
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy && !testing) onClose();
+      }}
+    >
+      <DialogContent
+        className="host-editor"
+        showCloseButton={!busy && !testing}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        {form}
       </DialogContent>
     </Dialog>
   );

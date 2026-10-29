@@ -1174,6 +1174,14 @@ pub(crate) async fn file_delete(
 }
 
 #[tauri::command]
+pub(crate) async fn file_close(target: Target) -> CommandResult<()> {
+    if let Target::Local { id } = target {
+        files::forget(id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) async fn local_connectivity_test(
     state: State<'_, AppState>,
     mut host: crate::storage::LocalHost,

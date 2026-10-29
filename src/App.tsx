@@ -28,7 +28,6 @@ import {
   ChevronDown,
   Folder,
   FolderPlus,
-  FolderOpen,
   LoaderCircle,
   Moon,
   Minus,
@@ -38,7 +37,6 @@ import {
   Server,
   Square,
   Settings2,
-  ShieldCheck,
   Sun,
   Tag,
   TerminalSquare,
@@ -56,7 +54,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
@@ -123,8 +120,8 @@ import {
 } from "@/lib/pane-layout";
 import { usePaneDrag, type PaneDrop } from "@/hooks/use-pane-drag";
 import { HostTree } from "@/components/HostTree";
-import { HostOsIcon } from "@/components/HostOsIcon";
 import { HostDetails } from "@/components/HostDetails";
+import { HostProfile, type HostProfileTab } from "@/components/HostProfile";
 import { HostMonitor } from "@/components/HostMonitor";
 import { resource, platformGroupPaths, type HostNode } from "@/lib/api";
 import { BatchCommand } from "@/components/BatchCommand";
@@ -167,7 +164,8 @@ function cachedPreferences(): Preferences {
 }
 function GroupPath({ path }: { path: string }) {
   const segments = path.split("/").filter(Boolean);
-  if (!segments.length) return <span className="workspace-group-path__empty">未分组</span>;
+  if (!segments.length)
+    return <span className="workspace-group-path__empty">未分组</span>;
   return (
     <span className="workspace-group-path" title={path}>
       {segments.map((segment, index) => (
@@ -207,7 +205,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [localHosts, setLocalHosts] = useState<LocalHost[]>([]);
   const [localGroups, setLocalGroups] = useState<string[]>([]);
-  const [hostEditOpen, setHostEditOpen] = useState(false);
   const [hostCreateOpen, setHostCreateOpen] = useState(false);
   const [platformHosts, setPlatformHosts] = useState<Host[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -217,14 +214,26 @@ export default function App() {
   const [resourcePage, setResourcePage] = useState(1);
   const [workspaceHostPageSize, setWorkspaceHostPageSize] = useState(10);
   const [workspaceHostPageJump, setWorkspaceHostPageJump] = useState("1");
-  const [workspaceSelectedHosts, setWorkspaceSelectedHosts] = useState<string[]>([]);
-  const [workspaceCheckingHost, setWorkspaceCheckingHost] = useState<string | null>(null);
-  const [workspaceEditingHost, setWorkspaceEditingHost] = useState<LocalHost | null>(null);
-  const [workspaceMoreOpen, setWorkspaceMoreOpen] = useState<string | null>(null);
-  const [workspaceDeleteHost, setWorkspaceDeleteHost] = useState<LocalHost | null>(null);
+  const [workspaceSelectedHosts, setWorkspaceSelectedHosts] = useState<
+    string[]
+  >([]);
+  const [workspaceCheckingHost, setWorkspaceCheckingHost] = useState<
+    string | null
+  >(null);
+  const [workspaceEditingHost, setWorkspaceEditingHost] =
+    useState<LocalHost | null>(null);
+  const [inlineEditingHostId, setInlineEditingHostId] = useState<string | null>(
+    null,
+  );
+  const [workspaceMoreOpen, setWorkspaceMoreOpen] = useState<string | null>(
+    null,
+  );
+  const [workspaceDeleteHost, setWorkspaceDeleteHost] =
+    useState<LocalHost | null>(null);
   const [workspaceHostKeyword, setWorkspaceHostKeyword] = useState("");
   const [workspaceHostNotice, setWorkspaceHostNotice] = useState(true);
-  const [workspaceBatchImportOpen, setWorkspaceBatchImportOpen] = useState(false);
+  const [workspaceBatchImportOpen, setWorkspaceBatchImportOpen] =
+    useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(),
   );
@@ -273,6 +282,8 @@ export default function App() {
     target: Target;
     name: string;
   } | null>(null);
+  const [hostProfileTab, setHostProfileTab] =
+    useState<HostProfileTab>("overview");
   const [connecting, setConnecting] = useState(false);
   const [connection, setConnection] = useState<{
     host: Host;
@@ -287,6 +298,9 @@ export default function App() {
   const preferenceQueue = useRef<Promise<void>>(Promise.resolve());
   const prefsRef = useRef(preferences);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("dark");
+  useEffect(() => {
+    setHostProfileTab("overview");
+  }, [selectedId]);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     function apply() {
@@ -409,14 +423,11 @@ export default function App() {
     }
     setFolderSaving(true);
     try {
-      const path = folderCreateParent
-        ? `${folderCreateParent}/${name}`
-        : name;
+      const path = folderCreateParent ? `${folderCreateParent}/${name}` : name;
       await command("group_save", { previous: null, name: path });
       setExpandedGroups((current) => {
         const next = new Set(current);
-        if (folderCreateParent)
-          next.add(`local:group:${folderCreateParent}`);
+        if (folderCreateParent) next.add(`local:group:${folderCreateParent}`);
         return next;
       });
       await refreshLocal();
@@ -710,14 +721,11 @@ export default function App() {
   async function testWorkspaceHost(host: LocalHost) {
     setWorkspaceCheckingHost(host.id);
     try {
-      await command<{ message: string }>(
-        "local_connectivity_test",
-        {
-          host: { ...host, proxy: host.proxy ?? null },
-          password: null,
-          proxyPassword: null,
-        },
-      );
+      await command<{ message: string }>("local_connectivity_test", {
+        host: { ...host, proxy: host.proxy ?? null },
+        password: null,
+        proxyPassword: null,
+      });
       toast.success(`${host.address} SSH 连通正常`, {
         className: "connectivity-toast",
       });
@@ -761,6 +769,7 @@ export default function App() {
     }
   }
   function revealHost(host: Host) {
+    setInlineEditingHostId(null);
     const group =
       preferences.groupBy === "tag" ? host.tags[0] || "无标签" : host.group;
     setSelectedId(host.id);
@@ -778,6 +787,20 @@ export default function App() {
         toast.error(errorMessage(error)),
       );
     }
+  }
+  function openHostProfile(host: Host) {
+    setInlineEditingHostId(null);
+    setSelectedId(host.id);
+    setResourceGroupFilter(null);
+    setView("workspace");
+    setActive("home");
+  }
+  function closeHostProfile() {
+    setInlineEditingHostId(null);
+    setSelectedId(null);
+    if (active !== "home") return;
+    const fallback = sessions.at(-1);
+    if (fallback) setActive(fallback.id);
   }
   function activateSession(session: Session) {
     if (session.target.mode === "shell") {
@@ -1061,6 +1084,16 @@ export default function App() {
     setView("workspace");
     setConnection(null);
   }
+  const closeHostFiles = useCallback(() => {
+    setFileTarget((current) => {
+      if (current?.target.mode === "local") {
+        void command("file_close", { target: current.target }).catch(
+          () => undefined,
+        );
+      }
+      return null;
+    });
+  }, []);
   async function connect(
     host: Host,
     purpose: "terminal" | "files" = "terminal",
@@ -1098,6 +1131,15 @@ export default function App() {
   const hosts = mode === "local" ? localHosts.map(fromLocal) : platformHosts;
   const selected = hosts.find((host) => host.id === selectedId);
   const activeSession = sessions.find((session) => session.id === active);
+  const hostProfileOpen =
+    view === "workspace" && active === "home" && !!selected;
+  const filesInHostProfile = !!(
+    hostProfileOpen &&
+    fileTarget &&
+    selected &&
+    fileTarget.target.id === selected.id &&
+    fileTarget.target.mode === selected.mode
+  );
   // 主机监控只在平台/图形会话里可用，shell 会话没有采集来源。
   const monitorPanelOpen =
     monitorOpen &&
@@ -1143,12 +1185,15 @@ export default function App() {
             path.startsWith(`${resourceGroupFilter}/`),
         );
   });
-  const normalizedWorkspaceHostKeyword = workspaceHostKeyword.trim().toLowerCase();
-  const workspaceResourceFiltered = resourceFiltered.filter((host) =>
-    !normalizedWorkspaceHostKeyword ||
-    [host.name, host.address, host.group, ...(host.groupPaths ?? [])].some((value) =>
-      value.toLowerCase().includes(normalizedWorkspaceHostKeyword),
-    ),
+  const normalizedWorkspaceHostKeyword = workspaceHostKeyword
+    .trim()
+    .toLowerCase();
+  const workspaceResourceFiltered = resourceFiltered.filter(
+    (host) =>
+      !normalizedWorkspaceHostKeyword ||
+      [host.name, host.address, host.group, ...(host.groupPaths ?? [])].some(
+        (value) => value.toLowerCase().includes(normalizedWorkspaceHostKeyword),
+      ),
   );
   const resourcePageCount = Math.max(
     1,
@@ -1362,7 +1407,10 @@ export default function App() {
                           ? null
                           : { target, name: activeSession.host.name },
                       );
-                    } else if (selected) void connect(selected, "files");
+                    } else if (selected) {
+                      setHostProfileTab("files");
+                      void connect(selected, "files");
+                    }
                   }}
                 >
                   <ObjectStorageFolderIcon />
@@ -1631,23 +1679,25 @@ export default function App() {
                 selected={selectedId}
                 tags={preferences.groupBy === "tag"}
                 onGroupSelect={(path) => {
+                  setInlineEditingHostId(null);
                   setResourceGroupFilter(path);
                   setResourcePage(1);
                   setSelectedId(null);
                 }}
-                onSelect={(host) => {
-                  setSelectedId(host.id);
-                  setResourceGroupFilter(null);
-                  setView("workspace");
-                  setActive("home");
-                }}
+                onSelect={openHostProfile}
                 onConnect={(host) => void connect(host)}
                 onRootContextMenu={(event) => {
-                  if (mode !== "local" || preferences.groupBy !== "group") return;
-                  setHostTreeMenu({ kind: "root", x: event.clientX, y: event.clientY });
+                  if (mode !== "local" || preferences.groupBy !== "group")
+                    return;
+                  setHostTreeMenu({
+                    kind: "root",
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
                 }}
                 onGroupContextMenu={(group, event) => {
-                  if (mode !== "local" || preferences.groupBy !== "group") return;
+                  if (mode !== "local" || preferences.groupBy !== "group")
+                    return;
                   setHostTreeMenu({
                     kind: "group",
                     group,
@@ -1665,11 +1715,13 @@ export default function App() {
                   });
                 }}
                 onHostDrop={(host, group) => {
-                  if (mode !== "local" || preferences.groupBy !== "group") return;
+                  if (mode !== "local" || preferences.groupBy !== "group")
+                    return;
                   void dropHostIntoGroup(host, group);
                 }}
                 onGroupDrop={(source, target) => {
-                  if (mode !== "local" || preferences.groupBy !== "group") return;
+                  if (mode !== "local" || preferences.groupBy !== "group")
+                    return;
                   void dropGroupIntoGroup(source, target);
                 }}
               />
@@ -1779,74 +1831,86 @@ export default function App() {
             <div
               className={cn(
                 "session-layout",
-                !sessions.length && "session-layout--no-tabs",
+                !(sessions.length || selected) && "session-layout--no-tabs",
               )}
             >
-              {sessions.length ? (
+              {sessions.length || selected ? (
                 <div className="session-tabrow">
-                <div className="session-bar" ref={sessionBarRef}>
-                  {sessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className={cn(
-                        "session-tab",
-                        active === session.id && "active",
-                      )}
-                      data-session-tab-id={session.id}
-                      data-tauri-drag-region="false"
-                      data-drag-source={drag?.sourceId === session.id}
-                    >
-                      <button
-                        className="session-tab-drag"
-                        title="拖到终端左、右、上、下边缘分屏；悬停其他标签可切换目标"
-                        {...bindPaneDrag(session.id)}
-                        onClick={() => activateSession(session)}
-                        onDoubleClick={() => toggleMaximizedPane(session.id)}
+                  <div className="session-bar" ref={sessionBarRef}>
+                    {selected ? (
+                      <div
+                        className={cn(
+                          "session-tab",
+                          active === "home" && "active",
+                        )}
+                        data-tauri-drag-region="false"
                       >
-                        <TerminalSquare />
-                        <span>{sessionTitle(session)}</span>
-                      </button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`关闭 ${sessionTitle(session)}`}
-                        onClick={() => closeSession(session.id)}
+                        <button
+                          className="session-tab-label"
+                          title="主机详情"
+                          onClick={() => openHostProfile(selected)}
+                        >
+                          <Server />
+                          <span>详情</span>
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="关闭主机详情"
+                          onClick={closeHostProfile}
+                        >
+                          <X />
+                        </Button>
+                      </div>
+                    ) : null}
+                    {sessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className={cn(
+                          "session-tab",
+                          active === session.id && "active",
+                        )}
+                        data-session-tab-id={session.id}
+                        data-tauri-drag-region="false"
+                        data-drag-source={drag?.sourceId === session.id}
                       >
-                        <X />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-                <div className="session-tabrow-space" data-tauri-drag-region />
+                        <button
+                          className="session-tab-drag"
+                          title="拖到终端左、右、上、下边缘分屏；悬停其他标签可切换目标"
+                          {...bindPaneDrag(session.id)}
+                          onClick={() => activateSession(session)}
+                          onDoubleClick={() => toggleMaximizedPane(session.id)}
+                        >
+                          <TerminalSquare />
+                          <span>{sessionTitle(session)}</span>
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`关闭 ${sessionTitle(session)}`}
+                          onClick={() => closeSession(session.id)}
+                        >
+                          <X />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div
+                    className="session-tabrow-space"
+                    data-tauri-drag-region
+                  />
                 </div>
               ) : null}
               <div className="session-content" ref={paneContainer}>
                 <section className="connection-page" hidden={active !== "home"}>
-                  {selected || mode === "platform" ? (
+                  {!selected && mode === "platform" ? (
                     <div className="page-title">
-                    <div>
-                      <h1>{selected?.name || "连接管理"}</h1>
-                      <p>
-                        {selected
-                          ? `${selected.address}:${selected.port}`
-                          : mode === "local"
-                            ? "管理主机连接，双击主机打开 SSH 会话。"
-                            : "使用运维平台的身份、资源权限和审计策略。"}
-                      </p>
-                    </div>
-                    {mode === "local" && selected ? (
-                      <Button
-                        className="host-primary-action"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => settings("hosts", true)}
-                      >
-                        新增主机
-                      </Button>
-                    ) : mode === "platform" ? (
+                      <div>
+                        <h1>连接管理</h1>
+                        <p>使用运维平台的身份、资源权限和审计策略。</p>
+                      </div>
                       <Button
                         size="sm"
-                        variant={selected ? "outline" : "default"}
                         onClick={() =>
                           user ? void refreshPlatform() : login()
                         }
@@ -1854,7 +1918,6 @@ export default function App() {
                         {user ? "同步主机" : "连接运维平台"}
                         <ArrowUpRight data-icon="inline-end" />
                       </Button>
-                    ) : null}
                     </div>
                   ) : null}
                   {!selected && mode === "local" ? (
@@ -1872,8 +1935,8 @@ export default function App() {
                             />
                           </svg>
                           <span>
-                            管理主机，支持新增、编辑、删除、批量导入节点。节点可用于远程 SSH
-                            连接。
+                            管理主机，支持新增、编辑、删除、批量导入节点。节点可用于远程
+                            SSH 连接。
                           </span>
                           <button
                             type="button"
@@ -1925,7 +1988,9 @@ export default function App() {
                               disabled={loading}
                               onClick={() => void refreshLocal()}
                             >
-                              <RefreshCw className={loading ? "animate-spin" : undefined} />
+                              <RefreshCw
+                                className={loading ? "animate-spin" : undefined}
+                              />
                             </Button>
                           </div>
                         </div>
@@ -1934,103 +1999,31 @@ export default function App() {
                   ) : null}
                   {selected ? (
                     <>
-                      <div className="connection-detail">
-                        <div className="detail-top">
-                          <HostOsIcon host={selected} />
-                          <strong>{selected.name}</strong>
-                          <Badge variant="outline">SSH</Badge>
-                          {selected.tags.map((tag) => (
-                            <Badge key={tag} variant="secondary">
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                        <dl>
-                          <div>
-                            <dt>登录 IP</dt>
-                            <dd className="mono">
-                              {selected.address || "平台解析"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>端口</dt>
-                            <dd className="mono">{selected.port}</dd>
-                          </div>
-                          <div>
-                            <dt>用户名</dt>
-                            <dd>
-                              {selected.local?.username || "平台授权账号"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>分组</dt>
-                            <dd>{selected.group}</dd>
-                          </div>
-                          <div>
-                            <dt>认证</dt>
-                            <dd>
-                              {selected.local
-                                ? selected.local.identityFile
-                                  ? "私钥"
-                                  : selected.local.hasPassword
-                                    ? "已保存密码"
-                                    : "交互 / SSH Agent"
-                                : "平台凭据"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>隧道</dt>
-                            <dd className="mono">
-                              {selected.local?.tunnels.length || 0} 条
-                            </dd>
-                          </div>
-                        </dl>
-                        {selected.local?.note ? (
-                          <p className="detail-note">{selected.local.note}</p>
-                        ) : null}
-                        <div className="detail-actions">
-                          <Button
-                            disabled={connecting}
-                            onClick={() => void connect(selected)}
-                          >
-                            <TerminalSquare data-icon="inline-start" />
-                            连接主机
-                          </Button>
-                          <Button
-                            variant="outline"
-                            disabled={connecting}
-                            onClick={() => void connect(selected, "files")}
-                          >
-                            <FolderOpen data-icon="inline-start" />
-                            文件管理
-                          </Button>
-                          {selected.local ? (
-                            <Button
-                              variant="outline"
-                              onClick={() => setHostEditOpen(true)}
-                            >
-                              管理配置
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-                      {selected.mode === "platform" &&
-                      active === "home" &&
-                      view === "workspace" &&
-                      user ? (
-                        <HostDetails
-                          key={`${selected.mode}:${selected.id}`}
-                          host={selected}
-                        />
-                      ) : null}
-                      <div className="connection-hint">
-                        <ShieldCheck />
-                        <span>
-                          {selected.mode === "local"
-                            ? "首次连接需核验服务器指纹。隧道随 SSH 会话启动和关闭。"
-                            : "每次连接由平台校验访问权限，终端操作与文件传输沿用平台审计。"}
-                        </span>
-                      </div>
+                      <HostProfile
+                        host={selected}
+                        editing={inlineEditingHostId === selected.id}
+                        connecting={connecting}
+                        onEdit={() => setInlineEditingHostId(selected.id)}
+                        onCancelEdit={() => setInlineEditingHostId(null)}
+                        onSaved={() => {
+                          setInlineEditingHostId(null);
+                          void refreshLocal();
+                        }}
+                        onConnect={() => void connect(selected)}
+                        tab={hostProfileTab}
+                        fileSession={filesInHostProfile ? fileTarget : null}
+                        onTabChange={setHostProfileTab}
+                        onOpenFiles={() => void connect(selected, "files")}
+                        onCloseFiles={closeHostFiles}
+                        extra={
+                          selected.mode === "platform" && user ? (
+                            <HostDetails
+                              key={`${selected.mode}:${selected.id}`}
+                              host={selected}
+                            />
+                          ) : null
+                        }
+                      />
                     </>
                   ) : (
                     <>
@@ -2075,7 +2068,9 @@ export default function App() {
                                   onChange={(event) =>
                                     setWorkspaceSelectedHosts(
                                       event.target.checked
-                                        ? workspaceResourceFiltered.map((host) => host.id)
+                                        ? workspaceResourceFiltered.map(
+                                            (host) => host.id,
+                                          )
                                         : [],
                                     )
                                   }
@@ -2083,29 +2078,39 @@ export default function App() {
                               </th>
                               <th>主机名称</th>
                               <th>IP</th>
-                              <th className="workspace-host-table__port">端口</th>
+                              <th className="workspace-host-table__port">
+                                端口
+                              </th>
                               <th>认证类型</th>
                               <th>分组</th>
-                              <th className="workspace-host-table__actions-head">操作</th>
+                              <th className="workspace-host-table__actions-head">
+                                操作
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
                             {pagedResources.map((host) => (
                               <tr
                                 key={host.id}
-                                data-selected={workspaceSelectedHosts.includes(host.id)}
+                                data-selected={workspaceSelectedHosts.includes(
+                                  host.id,
+                                )}
                                 onDoubleClick={() => void connect(host)}
                               >
                                 <td className="workspace-host-table__check">
                                   <input
                                     type="checkbox"
                                     aria-label={`选择 ${host.name}`}
-                                    checked={workspaceSelectedHosts.includes(host.id)}
+                                    checked={workspaceSelectedHosts.includes(
+                                      host.id,
+                                    )}
                                     onChange={(event) =>
                                       setWorkspaceSelectedHosts((current) =>
                                         event.target.checked
                                           ? [...current, host.id]
-                                          : current.filter((id) => id !== host.id),
+                                          : current.filter(
+                                              (id) => id !== host.id,
+                                            ),
                                       )
                                     }
                                   />
@@ -2147,7 +2152,9 @@ export default function App() {
                                       <button
                                         type="button"
                                         className="host-link"
-                                        disabled={workspaceCheckingHost === host.id}
+                                        disabled={
+                                          workspaceCheckingHost === host.id
+                                        }
                                         onClick={() =>
                                           void testWorkspaceHost(host.local!)
                                         }
@@ -2167,7 +2174,9 @@ export default function App() {
                                       <button
                                         type="button"
                                         className="host-link"
-                                        onClick={() => setWorkspaceEditingHost(host.local!)}
+                                        onClick={() =>
+                                          setWorkspaceEditingHost(host.local!)
+                                        }
                                       >
                                         编辑
                                       </button>
@@ -2176,10 +2185,14 @@ export default function App() {
                                           type="button"
                                           className="host-link workspace-host-more__trigger"
                                           aria-haspopup="menu"
-                                          aria-expanded={workspaceMoreOpen === host.id}
+                                          aria-expanded={
+                                            workspaceMoreOpen === host.id
+                                          }
                                           onClick={() =>
                                             setWorkspaceMoreOpen((current) =>
-                                              current === host.id ? null : host.id,
+                                              current === host.id
+                                                ? null
+                                                : host.id,
                                             )
                                           }
                                         >
@@ -2187,12 +2200,17 @@ export default function App() {
                                           <ChevronDown />
                                         </button>
                                         {workspaceMoreOpen === host.id ? (
-                                          <div className="workspace-host-more__menu" role="menu">
+                                          <div
+                                            className="workspace-host-more__menu"
+                                            role="menu"
+                                          >
                                             <button
                                               type="button"
                                               role="menuitem"
                                               onClick={() =>
-                                                setWorkspaceDeleteHost(host.local!)
+                                                setWorkspaceDeleteHost(
+                                                  host.local!,
+                                                )
                                               }
                                             >
                                               删除
@@ -2244,107 +2262,109 @@ export default function App() {
                             </Button>
                           </div>
                         ) : null}
-                      {workspaceResourceFiltered.length ? (
-                        <div
-                          className="host-pagination workspace-host-pagination"
-                          role="navigation"
-                          aria-label="主机列表分页"
-                        >
-                          <span className="host-pagination__total">
-                            共 {workspaceResourceFiltered.length} 条
-                          </span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon-sm"
-                            aria-label="上一页"
-                            disabled={safeWorkspaceHostPage <= 1}
-                            onClick={() =>
-                              goToWorkspaceHostPage(safeWorkspaceHostPage - 1)
-                            }
+                        {workspaceResourceFiltered.length ? (
+                          <div
+                            className="host-pagination workspace-host-pagination"
+                            role="navigation"
+                            aria-label="主机列表分页"
                           >
-                            <ChevronLeft />
-                          </Button>
-                          <div className="host-pagination__pages">
-                            {workspaceHostPageNumbers.map((page) => (
-                              <button
-                                type="button"
-                                key={page}
-                                className="host-pagination__page"
-                                data-active={page === safeWorkspaceHostPage}
-                                aria-current={
-                                  page === safeWorkspaceHostPage
-                                    ? "page"
-                                    : undefined
-                                }
-                                onClick={() => goToWorkspaceHostPage(page)}
-                              >
-                                {page}
-                              </button>
-                            ))}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon-sm"
-                            aria-label="下一页"
-                            disabled={safeWorkspaceHostPage >= resourcePageCount}
-                            onClick={() =>
-                              goToWorkspaceHostPage(safeWorkspaceHostPage + 1)
-                            }
-                          >
-                            <ChevronRight />
-                          </Button>
-                          <Select
-                            value={String(workspaceHostPageSize)}
-                            onValueChange={(value) => {
-                              setWorkspaceHostPageSize(Number(value));
-                              goToWorkspaceHostPage(1);
-                            }}
-                          >
-                            <SelectTrigger
-                              className="host-pagination__size"
-                              aria-label="每页条数"
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="host-pagination__size-content">
-                              {[10, 20, 30, 50, 100].map((size) => (
-                                <SelectItem key={size} value={String(size)}>
-                                  {size}条/页
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <label className="host-pagination__jump">
-                            前往
-                            <SearchInput
-                              inputMode="numeric"
-                              aria-label="跳转页码"
-                              value={workspaceHostPageJump}
-                              onChange={(event) =>
-                                setWorkspaceHostPageJump(
-                                  event.target.value.replace(/[^0-9]/g, ""),
-                                )
+                            <span className="host-pagination__total">
+                              共 {workspaceResourceFiltered.length} 条
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label="上一页"
+                              disabled={safeWorkspaceHostPage <= 1}
+                              onClick={() =>
+                                goToWorkspaceHostPage(safeWorkspaceHostPage - 1)
                               }
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                  event.preventDefault();
+                            >
+                              <ChevronLeft />
+                            </Button>
+                            <div className="host-pagination__pages">
+                              {workspaceHostPageNumbers.map((page) => (
+                                <button
+                                  type="button"
+                                  key={page}
+                                  className="host-pagination__page"
+                                  data-active={page === safeWorkspaceHostPage}
+                                  aria-current={
+                                    page === safeWorkspaceHostPage
+                                      ? "page"
+                                      : undefined
+                                  }
+                                  onClick={() => goToWorkspaceHostPage(page)}
+                                >
+                                  {page}
+                                </button>
+                              ))}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label="下一页"
+                              disabled={
+                                safeWorkspaceHostPage >= resourcePageCount
+                              }
+                              onClick={() =>
+                                goToWorkspaceHostPage(safeWorkspaceHostPage + 1)
+                              }
+                            >
+                              <ChevronRight />
+                            </Button>
+                            <Select
+                              value={String(workspaceHostPageSize)}
+                              onValueChange={(value) => {
+                                setWorkspaceHostPageSize(Number(value));
+                                goToWorkspaceHostPage(1);
+                              }}
+                            >
+                              <SelectTrigger
+                                className="host-pagination__size"
+                                aria-label="每页条数"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="host-pagination__size-content">
+                                {[10, 20, 30, 50, 100].map((size) => (
+                                  <SelectItem key={size} value={String(size)}>
+                                    {size}条/页
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <label className="host-pagination__jump">
+                              前往
+                              <SearchInput
+                                inputMode="numeric"
+                                aria-label="跳转页码"
+                                value={workspaceHostPageJump}
+                                onChange={(event) =>
+                                  setWorkspaceHostPageJump(
+                                    event.target.value.replace(/[^0-9]/g, ""),
+                                  )
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    goToWorkspaceHostPage(
+                                      Number(workspaceHostPageJump) || 1,
+                                    );
+                                  }
+                                }}
+                                onBlur={() =>
                                   goToWorkspaceHostPage(
                                     Number(workspaceHostPageJump) || 1,
-                                  );
+                                  )
                                 }
-                              }}
-                              onBlur={() =>
-                                goToWorkspaceHostPage(
-                                  Number(workspaceHostPageJump) || 1,
-                                )
-                              }
-                            />
-                            页
-                          </label>
-                        </div>
-                      ) : null}
+                              />
+                              页
+                            </label>
+                          </div>
+                        ) : null}
                       </div>
                     </>
                   )}
@@ -2536,7 +2556,11 @@ export default function App() {
                     toast.error(errorMessage(error)),
                   )
                 }
-                hidden={!aiOpen && !monitorPanelOpen && !fileTarget}
+                hidden={
+                  !aiOpen &&
+                  !monitorPanelOpen &&
+                  !(fileTarget && !hostProfileOpen)
+                }
               >
                 <div className="ai-panels" hidden={!aiOpen}>
                   <Suspense
@@ -2586,7 +2610,7 @@ export default function App() {
                     />
                   ) : null}
                 </div>
-                {fileTarget ? (
+                {fileTarget && !hostProfileOpen ? (
                   <FileManager
                     key={`${fileTarget.target.mode}:${fileTarget.target.id}:${fileTarget.target.accountId}:${fileTarget.target.accessPathId}`}
                     target={fileTarget.target}
@@ -2815,7 +2839,10 @@ export default function App() {
           if (!open && !folderSaving) setFolderCreateParent(undefined);
         }}
       >
-        <DialogContent className="host-folder-dialog" showCloseButton={!folderSaving}>
+        <DialogContent
+          className="host-folder-dialog"
+          showCloseButton={!folderSaving}
+        >
           <DialogHeader>
             <DialogTitle>新建文件夹</DialogTitle>
             <DialogDescription>
@@ -2858,7 +2885,10 @@ export default function App() {
           if (!open && !movingHostSaving) setMovingHost(null);
         }}
       >
-        <DialogContent className="host-move-dialog" showCloseButton={!movingHostSaving}>
+        <DialogContent
+          className="host-move-dialog"
+          showCloseButton={!movingHostSaving}
+        >
           <DialogHeader>
             <DialogTitle>移动主机</DialogTitle>
             <DialogDescription>
@@ -2898,14 +2928,6 @@ export default function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {hostEditOpen && selected?.local ? (
-        <HostEditor
-          key={selected.local.id}
-          host={selected.local}
-          onClose={() => setHostEditOpen(false)}
-          onSaved={() => void refreshLocal()}
-        />
-      ) : null}
       {hostCreateOpen ? (
         <HostEditor
           onClose={() => setHostCreateOpen(false)}
@@ -2940,10 +2962,16 @@ export default function App() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setWorkspaceDeleteHost(null)}>
+            <Button
+              variant="outline"
+              onClick={() => setWorkspaceDeleteHost(null)}
+            >
               取消
             </Button>
-            <Button variant="destructive" onClick={() => void deleteWorkspaceHost()}>
+            <Button
+              variant="destructive"
+              onClick={() => void deleteWorkspaceHost()}
+            >
               确认删除
             </Button>
           </DialogFooter>

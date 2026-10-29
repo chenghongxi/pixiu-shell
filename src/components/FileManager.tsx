@@ -9,7 +9,6 @@ import {
   FileArchive,
   FileText,
   Image,
-  ShieldCheck,
   LoaderCircle,
   RefreshCw,
   Trash2,
@@ -54,10 +53,12 @@ export function FileManager({
   target,
   name,
   onClose,
+  embedded = false,
 }: {
   target: Target;
   name: string;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }) {
   const [path, setPath] = useState("/");
   const [input, setInput] = useState("/");
@@ -117,7 +118,8 @@ export function FileManager({
     try {
       if (target.mode === "local") {
         const id = crypto.randomUUID();
-        const name = operation === "download" ? file?.name ?? "文件" : "选择的文件";
+        const name =
+          operation === "download" ? (file?.name ?? "文件") : "选择的文件";
         const channel = new Channel<{
           eventType: string;
           payload?: { transferred?: number; total?: number };
@@ -128,7 +130,8 @@ export function FileManager({
               current?.id === id
                 ? {
                     ...current,
-                    transferred: event.payload?.transferred ?? current.transferred,
+                    transferred:
+                      event.payload?.transferred ?? current.transferred,
                     total: event.payload?.total ?? current.total,
                   }
                 : current,
@@ -141,7 +144,9 @@ export function FileManager({
             target,
             id,
             channel,
-            ...(operation === "upload" ? { directory: path } : { path: file?.path }),
+            ...(operation === "upload"
+              ? { directory: path }
+              : { path: file?.path }),
           },
         );
         if (!result.cancelled) {
@@ -193,22 +198,26 @@ export function FileManager({
     }
   }
   return (
-    <aside className="file-panel">
-      <header>
-        <div>
-          <ObjectStorageFolderIcon />
-          <strong>文件管理</strong>
-          <span>{name}</span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="关闭文件面板"
-          onClick={onClose}
-        >
-          <X />
-        </Button>
-      </header>
+    <aside
+      className={embedded ? "file-panel file-panel--embedded" : "file-panel"}
+    >
+      {embedded ? null : (
+        <header>
+          <div>
+            <ObjectStorageFolderIcon />
+            <strong>文件管理</strong>
+            <span>{name}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="关闭文件面板"
+            onClick={onClose}
+          >
+            <X />
+          </Button>
+        </header>
+      )}
       <form
         className="file-path"
         onSubmit={(event) => {
@@ -284,7 +293,10 @@ export function FileManager({
       {transferTask ? (
         <div className="file-transfer-task" role="status" aria-live="polite">
           <div>
-            <strong>{transferTask.operation === "upload" ? "正在上传" : "正在下载"} {transferTask.name}</strong>
+            <strong>
+              {transferTask.operation === "upload" ? "正在上传" : "正在下载"}{" "}
+              {transferTask.name}
+            </strong>
             <span>
               {transferTask.total
                 ? `${sizeLabel(transferTask.transferred)} / ${sizeLabel(transferTask.total)}`
@@ -295,7 +307,11 @@ export function FileManager({
             value={transferTask.total ? transferTask.transferred : undefined}
             max={transferTask.total || undefined}
           />
-          <Button size="sm" variant="outline" onClick={() => void cancelTransfer()}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void cancelTransfer()}
+          >
             取消
           </Button>
         </div>
@@ -357,19 +373,12 @@ export function FileManager({
           <div className="table-empty">此目录为空</div>
         ) : null}
       </div>
-      <footer>
-        {busy ? (
-          <>
-            <LoaderCircle className="animate-spin" />
-            正在处理文件，请稍候…
-          </>
-        ) : (
-          <>
-            <ShieldCheck /> {target.mode === "local" ? "SFTP" : "平台文件网关"}{" "}
-            · 支持大文件传输
-          </>
-        )}
-      </footer>
+      {busy ? (
+        <footer>
+          <LoaderCircle className="animate-spin" />
+          正在处理文件，请稍候…
+        </footer>
+      ) : null}
       <Dialog
         open={!!remove}
         onOpenChange={(open) => {
