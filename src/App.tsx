@@ -19,6 +19,7 @@ import {
   FileCode2,
   ListChecks,
   Sparkles,
+  Copy,
   Columns2,
   Rows2,
   Maximize2,
@@ -181,6 +182,24 @@ function GroupPath({ path }: { path: string }) {
     </span>
   );
 }
+function uniqueLocalHostCopyName(
+  name: string,
+  hosts: LocalHost[],
+  group: string,
+) {
+  const taken = new Set(
+    hosts
+      .filter((host) => (host.group || "") === (group || ""))
+      .map((host) => host.name),
+  );
+  const source = name.trim() || "主机";
+  const base = `${source} 副本`;
+  if (!taken.has(base)) return base;
+  let index = 2;
+  while (taken.has(`${source} 副本 ${index}`)) index += 1;
+  return `${source} 副本 ${index}`;
+}
+
 export default function App() {
   const [preferences, setPreferences] = useState(cachedPreferences);
   const [lockStatus, setLockStatus] = useState<LockStatus>({
@@ -466,6 +485,30 @@ export default function App() {
       host: { ...host, group },
       password: null,
     });
+  }
+  async function duplicateLocalHost(host: LocalHost) {
+    if (!host.id) {
+      toast.error("无法复制未保存的主机");
+      return;
+    }
+    setHostTreeMenu(null);
+    try {
+      await command("duplicate_host", {
+        id: host.id,
+        name: uniqueLocalHostCopyName(host.name, localHosts, host.group),
+      });
+      if (host.group) {
+        setExpandedGroups((current) => {
+          const next = new Set(current);
+          next.add(`local:group:${host.group}`);
+          return next;
+        });
+      }
+      await refreshLocal();
+      toast.success("已在当前分组创建副本");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
   }
   async function dropHostIntoGroup(host: Host, group: string) {
     if (!host.local || host.local.group === group) return;
@@ -768,11 +811,11 @@ export default function App() {
       setLoginOpen(true);
     }
   }
-  function revealHost(host: Host) {
+  function revealHost(host: Host, select = true) {
     setInlineEditingHostId(null);
     const group =
       preferences.groupBy === "tag" ? host.tags[0] || "无标签" : host.group;
-    setSelectedId(host.id);
+    if (select) setSelectedId(host.id);
     setKeyword("");
     const parts = group.split("/").filter(Boolean);
     const expansionKeys = parts.map(
@@ -1079,7 +1122,7 @@ export default function App() {
       setSessions((current) => [...current, { id, host, target }]);
       setLayouts((current) => [...current, { kind: "pane", id }]);
       setActive(id);
-      revealHost(host);
+      revealHost(host, false);
     }
     setView("workspace");
     setConnection(null);
@@ -1580,28 +1623,54 @@ export default function App() {
           id="host-sidebar"
           hidden={preferences.sidebarHidden || view !== "workspace"}
         >
-          <div className="host-search">
-            <Search />
-            <SearchInput
-              ref={search}
-              aria-label="搜索主机"
-              placeholder="搜索主机、IP、标签"
-              value={keyword}
-              onChange={(event) => {
-                setKeyword(event.target.value);
-                setResourcePage(1);
-              }}
-            />
-          </div>
           <div className="sidebar-heading">
-            <span>
+            <span className="sidebar-heading__title">
               {mode === "local" ? "主机" : "授权主机"}
-              <small>{hosts.length}</small>
             </span>
-            <div>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="sidebar-heading__icon"
+              aria-label="刷新主机"
+              title="刷新主机"
+              disabled={loading}
+              onClick={() =>
+                void (mode === "local" ? refreshLocal() : refreshPlatform())
+              }
+            >
+              <RefreshCw className={loading ? "animate-spin" : undefined} />
+            </Button>
+            <div className="sidebar-heading__actions">
+              {mode === "local" ? (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="sidebar-heading__icon"
+                  aria-label="添加主机"
+                  title="添加主机"
+                  onClick={() => settings("hosts", true)}
+                >
+                  <Plus />
+                </Button>
+              ) : user ? (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="sidebar-heading__icon"
+                  aria-label="添加平台主机"
+                  title="添加平台主机"
+                  onClick={() => {
+                    settings("resources");
+                    setResourceCreateRequest((value) => value + 1);
+                  }}
+                >
+                  <Plus />
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon-xs"
+                className="sidebar-heading__icon"
                 aria-label="切换分组方式"
                 title={
                   preferences.groupBy === "group"
@@ -1616,32 +1685,19 @@ export default function App() {
               >
                 {preferences.groupBy === "group" ? <Folder /> : <Tag />}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="刷新主机"
-                disabled={loading}
-                onClick={() =>
-                  void (mode === "local" ? refreshLocal() : refreshPlatform())
-                }
-              >
-                <RefreshCw className={loading ? "animate-spin" : undefined} />
-              </Button>
-              {mode === "platform" && user ? (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="添加平台主机"
-                  title="添加平台主机"
-                  onClick={() => {
-                    settings("resources");
-                    setResourceCreateRequest((value) => value + 1);
-                  }}
-                >
-                  <Plus />
-                </Button>
-              ) : null}
             </div>
+          </div>
+          <div className="host-search">
+            <SearchInput
+              ref={search}
+              aria-label="搜索主机"
+              placeholder="搜索主机、IP、标签"
+              value={keyword}
+              onChange={(event) => {
+                setKeyword(event.target.value);
+                setResourcePage(1);
+              }}
+            />
           </div>
           <div className="host-tree" ref={hostTree}>
             {loading || !ready ? (
@@ -1649,7 +1705,7 @@ export default function App() {
                 <LoaderCircle className="animate-spin" />
                 加载中
               </div>
-            ) : (
+            ) : groups.size ? (
               <HostTree
                 groups={groups}
                 prefix={`${mode}:${preferences.groupBy}:`}
@@ -1725,28 +1781,15 @@ export default function App() {
                   void dropGroupIntoGroup(source, target);
                 }}
               />
-            )}
-            {!loading && ready && !groups.size ? (
+            ) : (
               <div className="sidebar-empty">
-                <Server />
-                <p>
-                  {keyword
-                    ? "没有匹配的主机"
-                    : mode === "platform" && !user
-                      ? "登录后加载授权主机"
-                      : "暂无主机"}
-                </p>
-                {mode === "local" && !keyword ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => settings("hosts", true)}
-                  >
-                    新增主机
-                  </Button>
-                ) : null}
+                {keyword
+                  ? "没有匹配的主机"
+                  : mode === "platform" && !user
+                    ? "登录后加载授权主机"
+                    : "暂无主机"}
               </div>
-            ) : null}
+            )}
           </div>
         </aside>
         {hostTreeMenu ? (
@@ -1757,14 +1800,37 @@ export default function App() {
             onPointerDown={(event) => event.stopPropagation()}
           >
             {hostTreeMenu.kind === "host" ? (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => openMoveHost(hostTreeMenu.host)}
-              >
-                <ArrowRightLeft />
-                移动至分组
-              </button>
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHostTreeMenu(null);
+                    openHostProfile(fromLocal(hostTreeMenu.host));
+                  }}
+                >
+                  <Server />
+                  详情
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    void duplicateLocalHost(hostTreeMenu.host);
+                  }}
+                >
+                  <Copy />
+                  拷贝
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => openMoveHost(hostTreeMenu.host)}
+                >
+                  <ArrowRightLeft />
+                  移动至分组
+                </button>
+              </>
             ) : (
               <button
                 type="button"
@@ -1776,7 +1842,7 @@ export default function App() {
                 }
               >
                 <FolderPlus />
-                {hostTreeMenu.kind === "group" ? "新建子文件夹" : "新建文件夹"}
+                创建文件夹
               </button>
             )}
           </div>

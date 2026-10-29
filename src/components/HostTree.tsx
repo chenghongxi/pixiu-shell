@@ -120,9 +120,6 @@ export function HostTree({
       siblings = branch.children;
     });
   }
-  const count = (branch: Branch): number =>
-    branch.hosts.length +
-    [...branch.children.values()].reduce((sum, child) => sum + count(child), 0);
   const render = (branch: Branch, depth = 0) => {
     const key = `${prefix}${branch.path}`;
     const open = expanded.has(key);
@@ -172,7 +169,6 @@ export function HostTree({
           <ChevronDown />
           {tags ? <Tag /> : <ObjectStorageFolderIcon className="storage-folder-icon" />}
           <span>{branch.label}</span>
-          <small>{count(branch)}</small>
         </summary>
         <div className="host-group-children">
           {[...branch.children.values()].map((child) => render(child, depth + 1))}
@@ -217,7 +213,9 @@ export function HostTree({
                 aria-label={`连接 ${host.name}`}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
+                  event.preventDefault();
                   event.stopPropagation();
+                  suppressClick.current = true;
                   onConnect(host);
                 }}
                 onKeyDown={(event) => {

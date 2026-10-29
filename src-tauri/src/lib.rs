@@ -138,6 +138,63 @@ async fn save_host(
     .map_err(error)
 }
 
+
+#[tauri::command]
+async fn duplicate_host(
+    state: State<'_, AppState>,
+    id: Uuid,
+    name: String,
+) -> CommandResult<storage::LocalHost> {
+    let path = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<storage::LocalHost> {
+        let db = storage::open(&path)?;
+        let mut host = storage::list(&db)?
+            .into_iter()
+            .find(|item| item.id == Some(id))
+            .context("主机不存在")?;
+        let password = credentials::read(id)?;
+        let proxy_password = proxy::password(id)?;
+        host.name = name;
+        host.validate()?;
+        let new_id = Uuid::new_v4();
+        host.id = Some(new_id);
+        host.has_password = password
+            .as_ref()
+            .is_some_and(|value| !value.is_empty());
+        if let Some(config) = &mut host.proxy {
+            config.has_password = proxy_password
+                .as_ref()
+                .is_some_and(|value| !value.is_empty());
+        }
+        let saved = (|| -> Result<storage::LocalHost> {
+            if let Some(password) = password.as_ref().filter(|value| !value.is_empty()) {
+                credentials::write(new_id, password)?;
+            }
+            if host
+                .proxy
+                .as_ref()
+                .is_some_and(|config| config.has_password)
+            {
+                if let Some(value) = proxy_password.as_ref().filter(|value| !value.is_empty()) {
+                    proxy::set_password(new_id, Some(value.as_str()))?;
+                }
+            }
+            storage::save(&db, host)
+        })();
+        match saved {
+            Ok(host) => Ok(host),
+            Err(error) => {
+                let _ = credentials::delete(new_id);
+                let _ = proxy::set_password(new_id, None);
+                Err(error)
+            }
+        }
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
+}
+
 #[tauri::command]
 async fn delete_host(state: State<'_, AppState>, id: Uuid) -> CommandResult<()> {
     let path = state.database.to_path_buf();
@@ -481,6 +538,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 commands::host_metrics_stop,
                 local_hosts,
                 save_host,
+                duplicate_host,
                 delete_host,
                 platform_address,
                 configure_platform,
