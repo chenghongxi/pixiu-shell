@@ -173,7 +173,30 @@ export function platform<T>(request: Record<string, unknown>) {
   return command<T>("platform_request", { request });
 }
 export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  const raw =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : error &&
+            typeof error === "object" &&
+            "message" in error &&
+            (error as { message: unknown }).message
+          ? String((error as { message: unknown }).message)
+          : String(error);
+  const text = raw.trim();
+  const lower = text.toLowerCase();
+  if (
+    !text ||
+    text === "操作失败" ||
+    lower === "failure" ||
+    lower === "failed" ||
+    lower === "error"
+  )
+    return "服务器拒绝了该操作";
+  if (lower.includes("permission denied")) return "权限不足";
+  if (lower.includes("no such file")) return "文件或目录不存在";
+  return text;
 }
 export function fromLocal(host: LocalHost): Host {
   if (!host.id) throw new Error("本地主机缺少 ID");

@@ -492,6 +492,7 @@ export function HostProfile({
                 embedded
                 target={fileSession.target}
                 name={fileSession.name}
+                username={host.local?.username}
               />
             ) : (
               <div className="host-profile-sftp-empty">正在打开文件浏览…</div>

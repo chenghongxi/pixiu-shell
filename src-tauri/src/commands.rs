@@ -1174,6 +1174,105 @@ pub(crate) async fn file_delete(
 }
 
 #[tauri::command]
+pub(crate) async fn file_home(
+    state: State<'_, AppState>,
+    target: Target,
+) -> CommandResult<String> {
+    match target {
+        Target::Local { .. } => with_local_sftp(&state, target, files::home).await,
+        Target::Platform { .. } => Ok("/".into()),
+        Target::Shell => Err("本机 Shell 请使用系统文件管理器".into()),
+    }
+}
+
+fn local_sftp_target(target: &Target) -> CommandResult<uuid::Uuid> {
+    match target {
+        Target::Local { id } => Ok(*id),
+        Target::Shell => Err("本机 Shell 请使用系统文件管理器".into()),
+        Target::Platform { .. } => Err("平台主机暂不支持该文件操作".into()),
+    }
+}
+
+async fn with_local_sftp<T: Send + 'static>(
+    state: &State<'_, AppState>,
+    target: Target,
+    operation: impl Fn(&ssh2::Sftp) -> Result<T> + Send + 'static,
+) -> CommandResult<T> {
+    let id = local_sftp_target(&target)?;
+    let database = state.database.to_path_buf();
+    let known = state.known_hosts.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<T> {
+        files::with_sftp(&local_host(&database, id)?, &known, |sftp| operation(sftp))
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn file_mkdir(
+    state: State<'_, AppState>,
+    target: Target,
+    directory: String,
+    name: String,
+) -> CommandResult<()> {
+    let path = files::join_name(&directory, &name).map_err(error)?;
+    with_local_sftp(&state, target, move |sftp| files::mkdir(sftp, &path)).await
+}
+
+#[tauri::command]
+pub(crate) async fn file_rename(
+    state: State<'_, AppState>,
+    target: Target,
+    path: String,
+    name: String,
+) -> CommandResult<()> {
+    files::validate_path(&path).map_err(error)?;
+    let parent = path
+        .rsplit_once('/')
+        .map(|(directory, _)| if directory.is_empty() { "/" } else { directory })
+        .unwrap_or("/");
+    let to = files::join_name(parent, &name).map_err(error)?;
+    with_local_sftp(&state, target, move |sftp| files::rename(sftp, &path, &to)).await
+}
+
+#[tauri::command]
+pub(crate) async fn file_chmod(
+    state: State<'_, AppState>,
+    target: Target,
+    path: String,
+    mode: String,
+) -> CommandResult<()> {
+    files::validate_path(&path).map_err(error)?;
+    let mode = files::parse_mode(&mode).map_err(error)?;
+    with_local_sftp(&state, target, move |sftp| files::chmod(sftp, &path, mode)).await
+}
+
+#[tauri::command]
+pub(crate) async fn file_read(
+    state: State<'_, AppState>,
+    target: Target,
+    path: String,
+) -> CommandResult<String> {
+    files::validate_path(&path).map_err(error)?;
+    with_local_sftp(&state, target, move |sftp| files::read_text(sftp, &path)).await
+}
+
+#[tauri::command]
+pub(crate) async fn file_write(
+    state: State<'_, AppState>,
+    target: Target,
+    path: String,
+    content: String,
+) -> CommandResult<()> {
+    files::validate_path(&path).map_err(error)?;
+    with_local_sftp(&state, target, move |sftp| {
+        files::write_bytes(sftp, &path, content.as_bytes())
+    })
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn file_close(target: Target) -> CommandResult<()> {
     if let Target::Local { id } = target {
         files::forget(id);

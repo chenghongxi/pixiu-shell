@@ -300,6 +300,7 @@ export default function App() {
   const [fileTarget, setFileTarget] = useState<{
     target: Target;
     name: string;
+    username?: string;
   } | null>(null);
   const [hostProfileTab, setHostProfileTab] =
     useState<HostProfileTab>("overview");
@@ -1116,7 +1117,12 @@ export default function App() {
           ? "rdp"
           : "ssh",
     };
-    if (purpose === "files") setFileTarget({ target, name: host.name });
+    if (purpose === "files")
+      setFileTarget({
+        target,
+        name: host.name,
+        username: host.local?.username,
+      });
     else {
       const id = crypto.randomUUID();
       setSessions((current) => [...current, { id, host, target }]);
@@ -1448,7 +1454,11 @@ export default function App() {
                         current.target.id === target.id &&
                         current.target.accountId === target.accountId
                           ? null
-                          : { target, name: activeSession.host.name },
+                          : {
+                              target,
+                              name: activeSession.host.name,
+                              username: activeSession.host.local?.username,
+                            },
                       );
                     } else if (selected) {
                       setHostProfileTab("files");
@@ -2681,6 +2691,7 @@ export default function App() {
                     key={`${fileTarget.target.mode}:${fileTarget.target.id}:${fileTarget.target.accountId}:${fileTarget.target.accessPathId}`}
                     target={fileTarget.target}
                     name={fileTarget.name}
+                    username={fileTarget.username}
                     onClose={() => setFileTarget(null)}
                   />
                 ) : null}
