@@ -1,10 +1,10 @@
 use crate::hostkey;
 use crate::storage::LocalHost;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use ssh2::{MethodType, Session};
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Advertised to remote shells; matches the TERM the previous OpenSSH
@@ -55,6 +55,152 @@ pub(crate) fn drain(queue: &mut VecDeque<u8>, sink: &mut dyn Write) -> bool {
 fn report(stage: Option<&dyn Fn(&str)>, message: &str) {
     if let Some(stage) = stage {
         stage(message);
+    }
+}
+
+/// libssh2's from-file API uses C `fopen`, which on Windows cannot open
+/// Unicode paths such as `D:\奈哥虚拟机密钥\id_rsa`. Read the PEM with Rust
+/// and copy it to an ASCII temp file before handing it to libssh2.
+fn authenticate_with_key(
+    session: &Session,
+    host: &LocalHost,
+    passphrase: Option<&str>,
+) -> Result<()> {
+    let path = Path::new(&host.identity_file);
+    ensure!(
+        path.is_file(),
+        "指定的私钥文件不存在（请填写绝对路径）"
+    );
+    let private = read_identity(path)?;
+    if let Some(reason) = unsupported_identity(&private) {
+        bail!("{reason}");
+    }
+    let public = sibling_public_key(path);
+    // Stage through an ASCII temp path so libssh2's fopen can read Xshell
+    // keys stored under Chinese folders.
+    let staged = stage_identity(&private, public.as_deref())?;
+    let mut result = session.userauth_pubkey_file(
+        &host.username,
+        staged.public.as_ref().map(|file| file.path()),
+        staged.private.path(),
+        passphrase,
+    );
+    if result.is_err() && staged.public.is_some() {
+        result = session.userauth_pubkey_file(
+            &host.username,
+            None,
+            staged.private.path(),
+            passphrase,
+        );
+    }
+    result.map_err(|error| key_auth_error(&host.username, error))
+}
+
+fn read_identity(path: &Path) -> Result<String> {
+    let mut bytes =
+        std::fs::read(path).with_context(|| format!("无法读取私钥文件 {}", path.display()))?;
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        bytes.drain(..3);
+    }
+    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        bail!("私钥是 UTF-16 编码，请在 Xshell 中重新导出为 OpenSSH 文本格式");
+    }
+    String::from_utf8(bytes).context("私钥文件不是 UTF-8 文本，Xshell 请导出为 OpenSSH 格式")
+}
+
+struct StagedIdentity {
+    private: tempfile::NamedTempFile,
+    public: Option<tempfile::NamedTempFile>,
+}
+
+fn fopen_temp_dir() -> PathBuf {
+    let tmp = std::env::temp_dir();
+    if tmp.to_string_lossy().chars().all(|c| c.is_ascii()) {
+        tmp
+    } else if cfg!(windows) && Path::new(r"C:\Windows\Temp").is_dir() {
+        PathBuf::from(r"C:\Windows\Temp")
+    } else {
+        tmp
+    }
+}
+
+fn stage_identity(private: &str, public: Option<&str>) -> Result<StagedIdentity> {
+    let dir = fopen_temp_dir();
+    let mut private_file = tempfile::Builder::new()
+        .prefix("pixiu-id-")
+        .suffix(".pem")
+        .tempfile_in(&dir)
+        .context("无法创建临时私钥文件")?;
+    private_file.write_all(private.as_bytes())?;
+    private_file.flush()?;
+    let public_file = public
+        .map(|public| -> Result<_> {
+            let mut file = tempfile::Builder::new()
+                .prefix("pixiu-id-")
+                .suffix(".pub")
+                .tempfile_in(&dir)
+                .context("无法创建临时公钥文件")?;
+            file.write_all(public.as_bytes())?;
+            file.flush()?;
+            Ok(file)
+        })
+        .transpose()?;
+    Ok(StagedIdentity {
+        private: private_file,
+        public: public_file,
+    })
+}
+
+fn sibling_public_key(private: &Path) -> Option<String> {
+    let name = private.file_name()?.to_str()?;
+    let text = std::fs::read_to_string(private.with_file_name(format!("{name}.pub"))).ok()?;
+    let trimmed = text.trim();
+    let kind = trimmed.split_whitespace().next().unwrap_or("");
+    matches!(
+        kind,
+        "ssh-rsa"
+            | "ssh-ed25519"
+            | "ssh-dss"
+            | "ecdsa-sha2-nistp256"
+            | "ecdsa-sha2-nistp384"
+            | "ecdsa-sha2-nistp521"
+    )
+    .then(|| trimmed.to_string())
+}
+
+fn unsupported_identity(pem: &str) -> Option<String> {
+    if pem.contains("PuTTY-User-Key-File") {
+        return Some(
+            "这是 PuTTY/Xshell 的 ppk 私钥，pixiu-shell 需要 OpenSSH 格式。请在 Xshell「用户密钥管理器」中导出为 OpenSSH。"
+                .into(),
+        );
+    }
+    if pem.contains("BEGIN SSH2") {
+        return Some("这是 SSH2 格式私钥，请在 Xshell 中导出为 OpenSSH 格式后再连接。".into());
+    }
+    if !pem.contains("BEGIN") || !pem.contains("PRIVATE KEY") {
+        return Some(
+            "无法识别私钥格式。Xshell 导出时请选择 OpenSSH，文件应以 -----BEGIN 开头。".into(),
+        );
+    }
+    None
+}
+
+fn key_auth_error(username: &str, error: ssh2::Error) -> anyhow::Error {
+    let detail = error.to_string();
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("passphrase") {
+        anyhow::anyhow!("SSH 私钥认证失败：私钥口令不正确")
+    } else if lower.contains("username/publickey") || lower.contains("authentication failed") {
+        anyhow::anyhow!(
+            "SSH 私钥认证失败：服务器拒绝了用户 {username} 的公钥，请确认用户名与 Xshell 中一致，且 authorized_keys 包含对应公钥"
+        )
+    } else if lower.contains("unable to extract") || lower.contains("unrecognized") {
+        anyhow::anyhow!(
+            "SSH 私钥认证失败：无法解析私钥，Xshell 请导出为 OpenSSH（PEM）格式。{detail}"
+        )
+    } else {
+        anyhow::anyhow!("SSH 私钥认证失败：{detail}")
     }
 }
 
@@ -114,14 +260,7 @@ pub(crate) fn connect_session(
     let password = supplied_password.or_else(|| stored_password.as_deref().map(String::as_str));
     report(stage, "正在进行 SSH 认证");
     if !host.identity_file.is_empty() {
-        session
-            .userauth_pubkey_file(
-                &host.username,
-                None,
-                Path::new(&host.identity_file),
-                password,
-            )
-            .context("SSH 私钥认证失败")?;
+        authenticate_with_key(&session, host, password)?;
     } else if let Some(password) = password {
         session
             .userauth_password(&host.username, password)
@@ -145,4 +284,43 @@ pub(crate) fn open_shell(session: &Session, cols: u16, rows: u16) -> Result<ssh2
         .context("服务器拒绝了 PTY 请求，请确认该账户允许交互式登录")?;
     channel.shell().context("无法启动远程 Shell")?;
     Ok(channel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_ppk_and_ssh2_identities() {
+        assert!(unsupported_identity("PuTTY-User-Key-File-2: ssh-rsa\n").is_some());
+        assert!(unsupported_identity("---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----\n").is_some());
+        assert!(unsupported_identity("-----BEGIN RSA PRIVATE KEY-----\nMIIE\n").is_none());
+        assert!(unsupported_identity("-----BEGIN OPENSSH PRIVATE KEY-----\n").is_none());
+        assert!(unsupported_identity("not a key").is_some());
+    }
+
+    #[test]
+    fn reads_identity_from_unicode_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("奈哥虚拟机密钥");
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("id_rsa_2048");
+        std::fs::write(
+            &path,
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n",
+        )
+        .unwrap();
+        let pem = read_identity(&path).unwrap();
+        assert!(pem.contains("BEGIN RSA PRIVATE KEY"));
+        assert!(sibling_public_key(&path).is_none());
+        std::fs::write(
+            folder.join("id_rsa_2048.pub"),
+            "ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEA comment\n",
+        )
+        .unwrap();
+        assert!(sibling_public_key(&path).unwrap().starts_with("ssh-rsa "));
+        let staged = stage_identity(&pem, sibling_public_key(&path).as_deref()).unwrap();
+        let staged_path = staged.private.path().to_string_lossy();
+        assert!(staged_path.chars().all(|c| c.is_ascii()), "{staged_path}");
+    }
 }
