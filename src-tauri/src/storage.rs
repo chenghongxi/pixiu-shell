@@ -257,23 +257,66 @@ pub(crate) fn groups(connection: &Connection) -> Result<Vec<String>> {
         .query_map([], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?)
 }
+
+/// Matches a group path and every nested child (`a`, `a/b`, `a/b/c`).
+fn group_tree_sql(column: &str) -> String {
+    format!(
+        "substr({column}, 1, length(?1)) = ?1 AND (length({column}) = length(?1) OR substr({column}, length(?1) + 1, 1) = '/')"
+    )
+}
+
+fn group_tree_exists(connection: &Connection, name: &str) -> Result<bool> {
+    Ok(connection.query_row(
+        &format!(
+            "SELECT EXISTS(SELECT 1 FROM host_groups WHERE {})",
+            group_tree_sql("name")
+        ),
+        [name],
+        |row| row.get(0),
+    )?)
+}
+
+fn retarget_group_tree(connection: &Connection, source: &str, destination: &str) -> Result<()> {
+    connection.execute(
+        &format!(
+            "UPDATE local_hosts SET group_name = ?2 || substr(group_name, length(?1) + 1) WHERE {}",
+            group_tree_sql("group_name")
+        ),
+        params![source, destination],
+    )?;
+    connection.execute(
+        &format!(
+            "UPDATE host_groups SET name = ?2 || substr(name, length(?1) + 1) WHERE {}",
+            group_tree_sql("name")
+        ),
+        params![source, destination],
+    )?;
+    Ok(())
+}
+
 pub(crate) fn save_group(
     connection: &Connection,
     previous: Option<&str>,
     name: &str,
 ) -> Result<()> {
+    let name = name.trim();
     ensure!(
-        !name.trim().is_empty() && name.len() <= 120,
+        !name.is_empty() && name.len() <= 120,
         "分组名称不能为空且不能超过 120 字节"
     );
     let tx = connection.unchecked_transaction()?;
-    tx.execute("INSERT INTO host_groups(name) VALUES(?1)", [name])?;
-    if let Some(previous) = previous {
-        tx.execute(
-            "UPDATE local_hosts SET group_name=?1 WHERE group_name=?2",
-            params![name, previous],
-        )?;
-        tx.execute("DELETE FROM host_groups WHERE name=?1", [previous])?;
+    if let Some(previous) = previous.map(str::trim).filter(|value| !value.is_empty()) {
+        if previous != name {
+            ensure!(group_tree_exists(&tx, previous)?, "要重命名的文件夹不存在");
+            ensure!(
+                !name.starts_with(&format!("{previous}/")),
+                "不能把文件夹重命名到自身的子路径"
+            );
+            ensure!(!group_tree_exists(&tx, name)?, "已存在同名文件夹");
+            retarget_group_tree(&tx, previous, name)?;
+        }
+    } else {
+        tx.execute("INSERT INTO host_groups(name) VALUES(?1)", [name])?;
     }
     tx.commit()?;
     Ok(())
@@ -282,7 +325,10 @@ pub(crate) fn save_group(
 pub(crate) fn move_group(connection: &Connection, source: &str, target: &str) -> Result<()> {
     let source = source.trim();
     let target = target.trim();
-    ensure!(!source.is_empty() && !target.is_empty(), "请选择有效的目标文件夹");
+    ensure!(
+        !source.is_empty() && !target.is_empty(),
+        "请选择有效的目标文件夹"
+    );
     ensure!(
         source != target && !target.starts_with(&format!("{source}/")),
         "不能移动到当前文件夹或其子文件夹"
@@ -290,44 +336,37 @@ pub(crate) fn move_group(connection: &Connection, source: &str, target: &str) ->
     let name = source.rsplit('/').next().unwrap_or(source);
     let destination = format!("{target}/{name}");
     ensure!(destination != source, "文件夹已位于该目录下");
-    ensure!(destination.len() <= 120, "移动后的分组路径不能超过 120 字节");
+    ensure!(
+        destination.len() <= 120,
+        "移动后的分组路径不能超过 120 字节"
+    );
 
     let tx = connection.unchecked_transaction()?;
-    let exists: bool = tx.query_row(
-        "SELECT EXISTS(
-            SELECT 1 FROM host_groups
-            WHERE substr(name, 1, length(?1)) = ?1
-              AND (length(name) = length(?1) OR substr(name, length(?1) + 1, 1) = '/')
-        )",
-        [destination.as_str()],
-        |row| row.get(0),
-    )?;
-    ensure!(!exists, "目标文件夹中已存在同名目录");
-
-    let predicate = "substr(group_name, 1, length(?1)) = ?1
-        AND (length(group_name) = length(?1) OR substr(group_name, length(?1) + 1, 1) = '/')";
-    tx.execute(
-        &format!(
-            "UPDATE local_hosts SET group_name = ?2 || substr(group_name, length(?1) + 1) WHERE {predicate}"
-        ),
-        params![source, destination],
-    )?;
-    let predicate = "substr(name, 1, length(?1)) = ?1
-        AND (length(name) = length(?1) OR substr(name, length(?1) + 1, 1) = '/')";
-    tx.execute(
-        &format!("UPDATE host_groups SET name = ?2 || substr(name, length(?1) + 1) WHERE {predicate}"),
-        params![source, destination],
-    )?;
+    ensure!(group_tree_exists(&tx, source)?, "要移动的文件夹不存在");
+    ensure!(
+        !group_tree_exists(&tx, &destination)?,
+        "目标文件夹中已存在同名目录"
+    );
+    retarget_group_tree(&tx, source, &destination)?;
     tx.commit()?;
     Ok(())
 }
 pub(crate) fn delete_group(connection: &Connection, name: &str) -> Result<()> {
+    let name = name.trim();
+    ensure!(!name.is_empty(), "请选择要删除的文件夹");
     let tx = connection.unchecked_transaction()?;
+    ensure!(group_tree_exists(&tx, name)?, "要删除的文件夹不存在");
     tx.execute(
-        "UPDATE local_hosts SET group_name='' WHERE group_name=?1",
+        &format!(
+            "UPDATE local_hosts SET group_name='' WHERE {}",
+            group_tree_sql("group_name")
+        ),
         [name],
     )?;
-    tx.execute("DELETE FROM host_groups WHERE name=?1", [name])?;
+    tx.execute(
+        &format!("DELETE FROM host_groups WHERE {}", group_tree_sql("name")),
+        [name],
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -497,6 +536,87 @@ mod tests {
         assert!(groups(&open(&path)?)?.contains(&"empty".into()));
         Ok(())
     }
+
+    #[test]
+    fn renaming_a_folder_moves_nested_groups_and_hosts() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = open(&directory.path().join("nested-groups.db"))?;
+        save_group(&db, None, "prod")?;
+        save_group(&db, None, "prod/db")?;
+        let mut record = host();
+        record.group = "prod/db".into();
+        save(&db, record)?;
+        save_group(&db, Some("prod"), "online")?;
+        assert_eq!(groups(&db)?, ["online", "online/db"]);
+        assert_eq!(list(&db)?[0].group, "online/db");
+        delete_group(&db, "online")?;
+        assert!(groups(&db)?.is_empty());
+        assert_eq!(list(&db)?[0].group, "");
+        Ok(())
+    }
+
+    #[test]
+    fn folder_tree_operations_do_not_match_a_shared_prefix() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = open(&directory.path().join("group-prefixes.db"))?;
+        save_group(&db, None, "prod")?;
+        save_group(&db, None, "prod/api")?;
+        save_group(&db, None, "production")?;
+        let mut prod_host = host();
+        prod_host.group = "prod/api".into();
+        save(&db, prod_host)?;
+        let mut production_host = host();
+        production_host.name = "production-host".into();
+        production_host.group = "production".into();
+        save(&db, production_host)?;
+
+        save_group(&db, Some("prod"), "online")?;
+        assert_eq!(groups(&db)?, ["online", "online/api", "production"]);
+        assert_eq!(list(&db)?[0].group, "online/api");
+        assert_eq!(list(&db)?[1].group, "production");
+
+        delete_group(&db, "online")?;
+        assert_eq!(groups(&db)?, ["production"]);
+        assert_eq!(list(&db)?[0].group, "");
+        assert_eq!(list(&db)?[1].group, "production");
+        Ok(())
+    }
+
+    #[test]
+    fn folder_rename_rejects_missing_or_conflicting_targets() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = open(&directory.path().join("group-conflicts.db"))?;
+        save_group(&db, None, "prod")?;
+        save_group(&db, None, "staging")?;
+
+        assert!(save_group(&db, Some("missing"), "online").is_err());
+        assert!(save_group(&db, Some("prod"), "staging").is_err());
+        assert_eq!(groups(&db)?, ["prod", "staging"]);
+        Ok(())
+    }
+
+    #[test]
+    fn folder_move_rejects_a_missing_source() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = open(&directory.path().join("group-missing-source.db"))?;
+        save_group(&db, None, "target")?;
+
+        assert!(move_group(&db, "missing", "target").is_err());
+        assert_eq!(groups(&db)?, ["target"]);
+        Ok(())
+    }
+
+    #[test]
+    fn folder_delete_rejects_a_missing_source() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = open(&directory.path().join("group-missing-delete.db"))?;
+        save_group(&db, None, "existing")?;
+
+        assert!(delete_group(&db, "missing").is_err());
+        assert_eq!(groups(&db)?, ["existing"]);
+        Ok(())
+    }
+
     #[test]
     fn tunnel_arguments_bind_loopback_and_reject_injection() -> Result<()> {
         let mut tunnel = Tunnel {

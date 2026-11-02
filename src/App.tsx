@@ -32,6 +32,7 @@ import {
   LoaderCircle,
   Moon,
   Minus,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -41,6 +42,7 @@ import {
   Sun,
   Tag,
   TerminalSquare,
+  Trash2,
   X,
   ArrowUpRight,
   ArrowRightLeft,
@@ -267,6 +269,9 @@ export default function App() {
   >(undefined);
   const [folderName, setFolderName] = useState("");
   const [folderSaving, setFolderSaving] = useState(false);
+  const [folderRenamePath, setFolderRenamePath] = useState<string | null>(null);
+  const [folderDeletePath, setFolderDeletePath] = useState<string | null>(null);
+  const [folderDeleting, setFolderDeleting] = useState(false);
   const [movingHost, setMovingHost] = useState<LocalHost | null>(null);
   const [moveTarget, setMoveTarget] = useState("");
   const [movingHostSaving, setMovingHostSaving] = useState(false);
@@ -426,10 +431,44 @@ export default function App() {
       toast.error(errorMessage(error));
     }
   }, []);
+  function folderLabel(path: string) {
+    return path.split("/").filter(Boolean).pop() ?? path;
+  }
+  function folderParent(path: string) {
+    const parts = path.split("/").filter(Boolean);
+    return parts.length > 1 ? parts.slice(0, -1).join("/") : null;
+  }
+  function remapGroupKeys(current: Set<string>, from: string, to: string) {
+    const prefix = `local:group:${from}`;
+    const next = new Set<string>();
+    for (const key of current) {
+      if (key === prefix || key.startsWith(`${prefix}/`)) {
+        next.add(`local:group:${to}${key.slice(prefix.length)}`);
+      } else next.add(key);
+    }
+    return next;
+  }
   function openFolderCreate(parent: string | null) {
     setHostTreeMenu(null);
+    setFolderRenamePath(null);
     setFolderCreateParent(parent);
     setFolderName("");
+  }
+  function openFolderRename(path: string) {
+    setHostTreeMenu(null);
+    setFolderCreateParent(undefined);
+    setFolderRenamePath(path);
+    setFolderName(folderLabel(path));
+  }
+  function remapGroupFilter(from: string, to: string | null) {
+    setResourceGroupFilter((current) => {
+      if (!current) return current;
+      if (current === from) return to;
+      if (current.startsWith(`${from}/`)) {
+        return to ? `${to}${current.slice(from.length)}` : null;
+      }
+      return current;
+    });
   }
   async function saveFolder() {
     const name = folderName.trim();
@@ -443,20 +482,62 @@ export default function App() {
     }
     setFolderSaving(true);
     try {
-      const path = folderCreateParent ? `${folderCreateParent}/${name}` : name;
-      await command("group_save", { previous: null, name: path });
-      setExpandedGroups((current) => {
-        const next = new Set(current);
-        if (folderCreateParent) next.add(`local:group:${folderCreateParent}`);
-        return next;
-      });
+      if (folderRenamePath) {
+        const parent = folderParent(folderRenamePath);
+        const path = parent ? `${parent}/${name}` : name;
+        if (path !== folderRenamePath) {
+          await command("group_save", {
+            previous: folderRenamePath,
+            name: path,
+          });
+          setExpandedGroups((current) =>
+            remapGroupKeys(current, folderRenamePath, path),
+          );
+          remapGroupFilter(folderRenamePath, path);
+          toast.success("文件夹已重命名");
+        }
+        setFolderRenamePath(null);
+      } else {
+        const path = folderCreateParent
+          ? `${folderCreateParent}/${name}`
+          : name;
+        await command("group_save", { previous: null, name: path });
+        setExpandedGroups((current) => {
+          const next = new Set(current);
+          if (folderCreateParent) next.add(`local:group:${folderCreateParent}`);
+          return next;
+        });
+        setFolderCreateParent(undefined);
+        toast.success("文件夹已创建");
+      }
       await refreshLocal();
-      setFolderCreateParent(undefined);
-      toast.success("文件夹已创建");
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
       setFolderSaving(false);
+    }
+  }
+  async function deleteFolder() {
+    if (!folderDeletePath) return;
+    setFolderDeleting(true);
+    try {
+      await command("group_delete", { name: folderDeletePath });
+      setExpandedGroups((current) => {
+        const prefix = `local:group:${folderDeletePath}`;
+        return new Set(
+          [...current].filter(
+            (key) => key !== prefix && !key.startsWith(`${prefix}/`),
+          ),
+        );
+      });
+      remapGroupFilter(folderDeletePath, null);
+      setFolderDeletePath(null);
+      await refreshLocal();
+      toast.success("文件夹已删除");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setFolderDeleting(false);
     }
   }
   function openMoveHost(host: LocalHost) {
@@ -1842,18 +1923,43 @@ export default function App() {
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  openFolderCreate(
-                    hostTreeMenu.kind === "group" ? hostTreeMenu.group : null,
-                  )
-                }
-              >
-                <FolderPlus />
-                创建文件夹
-              </button>
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() =>
+                    openFolderCreate(
+                      hostTreeMenu.kind === "group" ? hostTreeMenu.group : null,
+                    )
+                  }
+                >
+                  <FolderPlus />
+                  创建文件夹
+                </button>
+                {hostTreeMenu.kind === "group" ? (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openFolderRename(hostTreeMenu.group)}
+                    >
+                      <Pencil />
+                      重命名
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setHostTreeMenu(null);
+                        setFolderDeletePath(hostTreeMenu.group);
+                      }}
+                    >
+                      <Trash2 />
+                      删除
+                    </button>
+                  </>
+                ) : null}
+              </>
             )}
           </div>
         ) : null}
@@ -2952,6 +3058,83 @@ export default function App() {
             </Button>
             <Button disabled={folderSaving} onClick={() => void saveFolder()}>
               {folderSaving ? "创建中..." : "创建文件夹"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!folderRenamePath}
+        onOpenChange={(open) => {
+          if (!open && !folderSaving) setFolderRenamePath(null);
+        }}
+      >
+        <DialogContent
+          className="file-form-dialog gap-0 p-0 sm:max-w-[400px]"
+          showCloseButton={!folderSaving}
+        >
+          <DialogHeader>
+            <DialogTitle>重命名文件夹</DialogTitle>
+            <DialogDescription className="sr-only">
+              请输入新的文件夹名称。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="file-form">
+            <Input
+              autoFocus
+              maxLength={120}
+              placeholder="请输入名称"
+              value={folderName}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveFolder();
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={folderSaving}
+              onClick={() => setFolderRenamePath(null)}
+            >
+              取消
+            </Button>
+            <Button disabled={folderSaving} onClick={() => void saveFolder()}>
+              {folderSaving ? "重命名中..." : "重命名"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!folderDeletePath}
+        onOpenChange={(open) => {
+          if (!open && !folderDeleting) setFolderDeletePath(null);
+        }}
+      >
+        <DialogContent
+          className="host-folder-dialog"
+          showCloseButton={!folderDeleting}
+        >
+          <DialogHeader>
+            <DialogTitle>删除文件夹“{folderDeletePath}”？</DialogTitle>
+            <DialogDescription>
+              该文件夹及其子文件夹将被删除，其中的主机将变为未分组。已打开的会话不受影响。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={folderDeleting}
+              onClick={() => setFolderDeletePath(null)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={folderDeleting}
+              onClick={() => void deleteFolder()}
+            >
+              {folderDeleting ? "删除中..." : "确认删除"}
             </Button>
           </DialogFooter>
         </DialogContent>
