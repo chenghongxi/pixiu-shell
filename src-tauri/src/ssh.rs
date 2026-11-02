@@ -260,7 +260,11 @@ pub(crate) fn connect_session(
     let password = supplied_password.or_else(|| stored_password.as_deref().map(String::as_str));
     report(stage, "正在进行 SSH 认证");
     if !host.identity_file.is_empty() {
-        authenticate_with_key(&session, host, password)?;
+        let passphrase = host.identity_id
+            .map(crate::credentials::read_identity_passphrase)
+            .transpose()?
+            .flatten();
+        authenticate_with_key(&session, host, passphrase.as_deref().map(String::as_str))?;
     } else if let Some(password) = password {
         session
             .userauth_password(&host.username, password)

@@ -204,7 +204,9 @@ export interface SshIdentity {
   name: string;
   path: string;
   keyType: string;
+  algorithm: string;
   fingerprint: string;
+  hasPassphrase: boolean;
 }
 export function fromLocal(host: LocalHost): Host {
   if (!host.id) throw new Error("本地主机缺少 ID");

@@ -87,6 +87,7 @@ export function HostEditor({
   const [proxyPassword, setProxyPassword] = useState("");
   const [clearProxyPassword, setClearProxyPassword] = useState(false);
   const [password, setPassword] = useState("");
+  const [keyPassphrase, setKeyPassphrase] = useState("");
   const [tags, setTags] = useState(host?.tags?.join(", ") ?? "");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -100,6 +101,7 @@ export function HostEditor({
     draft.identityFile,
     draft.proxy,
     password,
+    keyPassphrase,
     proxyPassword,
     clearProxyPassword,
   ]);
@@ -130,6 +132,14 @@ export function HostEditor({
   function update<K extends keyof LocalHost>(key: K, value: LocalHost[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
+  async function saveKeyPassphrase() {
+    if (authMode !== "key" || !draft.identityId || !keyPassphrase) return;
+    await command("identity_passphrase_save", {
+      id: draft.identityId,
+      passphrase: keyPassphrase,
+      clear: false,
+    });
+  }
   async function importIdentity() {
     setError("");
     try {
@@ -139,6 +149,7 @@ export function HostEditor({
       if (existing) {
         update("identityId", existing.id);
         update("identityFile", existing.path);
+        setKeyPassphrase("");
         return;
       }
       const baseName = path.split(/[\\/]/).pop() || "SSH 密钥";
@@ -155,12 +166,14 @@ export function HostEditor({
           name,
           path,
           keyType: "",
+          algorithm: "",
           fingerprint: "",
         },
       });
       await refreshIdentities();
       update("identityId", identity.id);
       update("identityFile", identity.path);
+      setKeyPassphrase("");
       toast.success("SSH 密钥已导入");
     } catch (value) {
       setError(errorMessage(value));
@@ -176,6 +189,7 @@ export function HostEditor({
     setError("");
     setTestResult(null);
     try {
+      await saveKeyPassphrase();
       const result = await command<{ message: string }>(
         "local_connectivity_test",
         {
@@ -221,6 +235,7 @@ export function HostEditor({
     setBusy(true);
     setError("");
     try {
+      await saveKeyPassphrase();
       await command("save_host", {
         proxyPassword: proxyPassword || null,
         clearProxyPassword,
@@ -372,49 +387,63 @@ export function HostEditor({
                 />
               </Row>
             ) : (
-              <Row
-                label="SSH 密钥"
-                required
-                invalid={fieldErrors && missing.secret}
-              >
-                <div className="host-identity-picker">
-                  <Choice
-                    label="SSH 密钥"
-                    value={draft.identityId ?? ""}
-                    placeholder={identities.length ? "请选择 SSH 密钥" : "暂无 SSH 密钥"}
-                    disabled={!identities.length}
-                    triggerClassName="identity-select__trigger"
-                    contentClassName="identity-select__content"
-                    contentPosition="popper"
-                    onChange={(value) => {
-                      const identity = identities.find((item) => item.id === value);
-                      if (!identity) return;
-                      update("identityId", identity.id);
-                      update("identityFile", identity.path);
-                    }}
-                    options={identities.map((identity) => ({
-                      value: identity.id,
-                      label: `${identity.name} · ${identity.keyType}`,
-                    }))}
+              <>
+                <Row
+                  label="SSH 密钥"
+                  required
+                  invalid={fieldErrors && missing.secret}
+                >
+                  <div className="host-identity-picker">
+                    <Choice
+                      label="SSH 密钥"
+                      value={draft.identityId ?? ""}
+                      placeholder={identities.length ? "请选择 SSH 密钥" : "暂无 SSH 密钥"}
+                      disabled={!identities.length}
+                      triggerClassName="identity-select__trigger"
+                      contentClassName="identity-select__content"
+                      contentPosition="popper"
+                      onChange={(value) => {
+                        const identity = identities.find((item) => item.id === value);
+                        if (!identity) return;
+                        update("identityId", identity.id);
+                        update("identityFile", identity.path);
+                        setKeyPassphrase("");
+                      }}
+                      options={identities.map((identity) => ({
+                        value: identity.id,
+                        label: `${identity.name} · ${identity.keyType}`,
+                      }))}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="host-identity-import"
+                      aria-label="导入 SSH 密钥到身份库"
+                      title="导入 SSH 密钥到身份库"
+                      onClick={() => void importIdentity()}
+                    >
+                      <Upload />
+                    </Button>
+                  </div>
+                  <p className="host-form-tip">
+                    {identities.length
+                      ? "身份库仅保存名称、路径和指纹，私钥文件始终留在原位置。"
+                      : "请导入 SSH 密钥，或先在“设置 - SSH 密钥”中添加身份。"}
+                  </p>
+                </Row>
+                <Row label="私钥口令" htmlFor="host-key-passphrase">
+                  <Input
+                    id="host-key-passphrase"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="选填；输入后保存到系统凭据库"
+                    value={keyPassphrase}
+                    onChange={(event) => setKeyPassphrase(event.target.value)}
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="host-identity-import"
-                    aria-label="导入 SSH 密钥到身份库"
-                    title="导入 SSH 密钥到身份库"
-                    onClick={() => void importIdentity()}
-                  >
-                    <Upload />
-                  </Button>
-                </div>
-                <p className="host-form-tip">
-                  {identities.length
-                    ? "身份库仅保存名称、路径和指纹，私钥文件始终留在原位置。"
-                    : "请导入 SSH 密钥，或先在“设置 - SSH 密钥”中添加身份。"}
-                </p>
-              </Row>
+                  <p className="host-form-tip">口令随 SSH 密钥保存，可供其他使用该密钥的主机复用。</p>
+                </Row>
+              </>
             )}
             <Row label="备注" htmlFor="host-note">
               <Textarea
