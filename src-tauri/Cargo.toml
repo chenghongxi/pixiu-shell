@@ -38,3 +38,10 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 calamine = "0.37.0"
 serde_yaml = "0.9.34"
 rust_xlsxwriter = "0.101.0"
+
+# The Windows WinCNG backend in libssh2 does not implement Ed25519 and leaves
+# ECDSA disabled. Link libssh2 to a statically built OpenSSL instead, so the
+# released application supports the same modern private-key algorithms without
+# requiring an OpenSSL installation on the user's machine.
+[target.'cfg(windows)'.dependencies]
+ssh2 = { version = "0.9", features = ["openssl-on-win32", "vendored-openssl"] }
