@@ -728,6 +728,26 @@ pub(crate) async fn identity_file_pick() -> CommandResult<Option<String>> {
     .await
     .map_err(error)
 }
+
+#[tauri::command]
+pub(crate) async fn identity_file_save_pick(
+    algorithm: String,
+) -> CommandResult<Option<String>> {
+    let default_name = match algorithm.as_str() {
+        "ed25519" => "id_ed25519",
+        "rsa" => "id_rsa",
+        _ => return Err("不支持的 SSH 密钥算法".into()),
+    };
+    tokio::task::spawn_blocking(move || {
+        rfd::FileDialog::new()
+            .set_title("保存 SSH 私钥")
+            .set_file_name(default_name)
+            .save_file()
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(error)
+}
 #[tauri::command]
 pub(crate) async fn dingtalk_open(
     app: tauri::AppHandle,
@@ -1180,7 +1200,14 @@ pub(crate) async fn identities_list(
     state: State<'_, AppState>,
 ) -> CommandResult<Vec<storage::SshIdentity>> {
     let path = state.database.to_path_buf();
-    tokio::task::spawn_blocking(move || storage::identities(&storage::open(&path)?))
+    tokio::task::spawn_blocking(move || -> Result<Vec<storage::SshIdentity>> {
+        let mut identities = storage::identities(&storage::open(&path)?)?;
+        for identity in &mut identities {
+            identity.algorithm = crate::identity::algorithm(std::path::Path::new(&identity.path));
+            identity.has_passphrase = crate::credentials::identity_passphrase_configured(identity.id)?;
+        }
+        Ok(identities)
+    })
         .await
         .map_err(error)?
         .map_err(error)
@@ -1195,6 +1222,70 @@ pub(crate) async fn identity_save(
     tokio::task::spawn_blocking(move || {
         let db = storage::open(&path)?;
         storage::save_identity(&db, identity)
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn identity_passphrase_save(
+    state: State<'_, AppState>,
+    id: Uuid,
+    passphrase: Option<String>,
+    clear: Option<bool>,
+) -> CommandResult<()> {
+    let path = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let db = storage::open(&path)?;
+        storage::identity_exists(&db, id)?;
+        if clear == Some(true) {
+            crate::credentials::delete_identity_passphrase(id)
+        } else if let Some(passphrase) = passphrase.filter(|value| !value.is_empty()) {
+            crate::credentials::write_identity_passphrase(id, &passphrase)
+        } else {
+            Ok(())
+        }
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn identity_generate(
+    state: State<'_, AppState>,
+    request: crate::identity::GenerateRequest,
+) -> CommandResult<storage::SshIdentity> {
+    let path = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let passphrase = request.passphrase.clone().filter(|value| !value.is_empty());
+        let identity = crate::identity::generate(request)?;
+        let private_path = std::path::PathBuf::from(&identity.path);
+        let public_path = private_path.with_file_name(format!(
+            "{}.pub",
+            private_path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        let result = (|| -> Result<_> {
+            let db = storage::open(&path)?;
+            if let Some(passphrase) = passphrase.as_deref() {
+                crate::credentials::write_identity_passphrase(identity.id, passphrase)?;
+            }
+            match storage::save_identity(&db, identity.clone()) {
+                Ok(saved) => Ok(saved),
+                Err(error) => {
+                    if passphrase.is_some() {
+                        let _ = crate::credentials::delete_identity_passphrase(identity.id);
+                    }
+                    Err(error)
+                }
+            }
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(private_path);
+            let _ = std::fs::remove_file(public_path);
+        }
+        result
     })
     .await
     .map_err(error)?

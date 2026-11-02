@@ -482,6 +482,15 @@ impl Sessions {
             );
             command.arg("-i");
             command.arg(host.identity_file);
+            if let Some(identity_id) = host.identity_id {
+                if crate::credentials::identity_passphrase_configured(identity_id)? {
+                    command.env("SSH_ASKPASS", std::env::current_exe()?);
+                    command.env("SSH_ASKPASS_REQUIRE", "force");
+                    command.env("PIXIU_SHELL_ASKPASS", "1");
+                    command.env("PIXIU_SHELL_IDENTITY_PASSPHRASE_ID", identity_id.to_string());
+                    command.env("DISPLAY", "pixiu-shell:0");
+                }
+            }
         }
         for tunnel in &host.tunnels {
             let (flag, value) = tunnel.arguments()?;

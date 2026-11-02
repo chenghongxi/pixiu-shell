@@ -36,7 +36,11 @@ pub(crate) struct SshIdentity {
     pub name: String,
     pub path: String,
     pub key_type: String,
+    #[serde(default)]
+    pub algorithm: String,
     pub fingerprint: String,
+    #[serde(default)]
+    pub has_passphrase: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -283,7 +287,9 @@ pub(crate) fn identities(connection: &Connection) -> Result<Vec<SshIdentity>> {
                 name: row.get(1)?,
                 path: row.get(2)?,
                 key_type: row.get(3)?,
+                algorithm: String::new(),
                 fingerprint: row.get(4)?,
+                has_passphrase: false,
             })
         })?
         .collect::<rusqlite::Result<_>>()
@@ -294,6 +300,16 @@ fn identity_path(connection: &Connection, id: Uuid) -> Result<String> {
     connection
         .query_row("SELECT path FROM ssh_identities WHERE id=?1", [id.to_string()], |row| row.get(0))
         .context("选择的 SSH 身份不存在，请重新选择")
+}
+
+pub(crate) fn identity_exists(connection: &Connection, id: Uuid) -> Result<()> {
+    connection
+        .query_row(
+            "SELECT 1 FROM ssh_identities WHERE id=?1",
+            [id.to_string()],
+            |_| Ok(()),
+        )
+        .context("SSH 密钥不存在，请刷新后重试")
 }
 
 pub(crate) fn save_identity(connection: &Connection, mut identity: SshIdentity) -> Result<SshIdentity> {
@@ -314,6 +330,7 @@ pub(crate) fn delete_identity(connection: &Connection, id: Uuid) -> Result<()> {
     )?;
     tx.execute("DELETE FROM ssh_identities WHERE id=?1", [id.to_string()])?;
     tx.commit()?;
+    crate::credentials::delete_identity_passphrase(id)?;
     Ok(())
 }
 
@@ -548,7 +565,9 @@ mod tests {
                 name: "production".into(),
                 path: path.to_string_lossy().into_owned(),
                 key_type: String::new(),
+                algorithm: String::new(),
                 fingerprint: String::new(),
+                has_passphrase: false,
             },
         )?;
         let mut record = host();

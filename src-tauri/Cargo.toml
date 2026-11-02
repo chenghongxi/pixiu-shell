@@ -27,6 +27,7 @@ portable-pty = "0.9"
 url = "2"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 ssh2 = "0.9"
+ssh-key = { version = "0.6", features = ["ed25519", "rsa", "rand_core", "getrandom", "encryption"] }
 rfd = "0.15"
 base64 = "0.22"
 sha2 = "0.10"

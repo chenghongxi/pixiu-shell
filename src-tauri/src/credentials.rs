@@ -13,6 +13,47 @@ fn entry(id: Uuid) -> Result<keyring::Entry> {
         .context("无法访问系统凭据库")
 }
 
+fn identity_entry(id: Uuid) -> Result<keyring::Entry> {
+    keyring::Entry::new(
+        crate::auth_store::SSH_SERVICE,
+        &format!("identity-passphrase:{id}"),
+    )
+    .context("无法访问 SSH 密钥口令凭据库")
+}
+
+pub(crate) fn identity_passphrase_configured(id: Uuid) -> Result<bool> {
+    match identity_entry(id)?.get_password() {
+        Ok(value) => Ok(!value.is_empty()),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(error) => Err(error).context("无法读取 SSH 密钥口令"),
+    }
+}
+
+pub(crate) fn read_identity_passphrase(id: Uuid) -> Result<Option<Zeroizing<String>>> {
+    match identity_entry(id)?.get_password() {
+        Ok(value) if !value.is_empty() => Ok(Some(Zeroizing::new(value))),
+        Ok(_) | Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(error).context("无法读取 SSH 密钥口令"),
+    }
+}
+
+pub(crate) fn write_identity_passphrase(id: Uuid, value: &str) -> Result<()> {
+    ensure!(
+        !value.is_empty() && value.len() <= 4096 && !value.contains(['\0', '\n', '\r']),
+        "私钥口令不能为空、过长或含换行符"
+    );
+    identity_entry(id)?
+        .set_password(value)
+        .context("保存 SSH 密钥口令失败")
+}
+
+pub(crate) fn delete_identity_passphrase(id: Uuid) -> Result<()> {
+    match identity_entry(id)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error).context("删除 SSH 密钥口令失败"),
+    }
+}
+
 fn ai_entry() -> Result<keyring::Entry> {
     keyring::Entry::new(crate::auth_store::AI_SERVICE, crate::auth_store::AI_ACCOUNT)
         .context("无法访问 AI 系统凭据")
@@ -92,8 +133,13 @@ pub fn askpass() -> Result<()> {
         normalized.contains("password") || normalized.contains("passphrase"),
         "不支持的 SSH 认证提示"
     );
-    let id = Uuid::parse_str(&std::env::var("PIXIU_SHELL_CREDENTIAL_ID")?)?;
-    let password = read(id)?.context("此主机未保存密码")?;
+    let password = if normalized.contains("passphrase") {
+        let id = Uuid::parse_str(&std::env::var("PIXIU_SHELL_IDENTITY_PASSPHRASE_ID")?)?;
+        read_identity_passphrase(id)?.context("此 SSH 密钥未保存口令，请在设置 - SSH 密钥中解锁")?
+    } else {
+        let id = Uuid::parse_str(&std::env::var("PIXIU_SHELL_CREDENTIAL_ID")?)?;
+        read(id)?.context("此主机未保存密码")?
+    };
     std::io::stdout().write_all(password.as_bytes())?;
     std::io::stdout().write_all(b"\n")?;
     Ok(())
