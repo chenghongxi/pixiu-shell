@@ -1,11 +1,11 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   ChevronDown,
-  FolderOpen,
   LoaderCircle,
   Minus,
   Plus,
   Trash2,
+  Upload,
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Choice } from "./Choice";
-import { command, errorMessage, type LocalHost } from "@/lib/api";
+import { command, errorMessage, type LocalHost, type SshIdentity } from "@/lib/api";
 
 const emptyHost: LocalHost = {
   id: null,
@@ -31,6 +31,7 @@ const emptyHost: LocalHost = {
   port: 22,
   username: "root",
   group: "",
+  identityId: null,
   identityFile: "",
   note: "",
   tags: [],
@@ -104,9 +105,18 @@ export function HostEditor({
   ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [identities, setIdentities] = useState<SshIdentity[]>([]);
   /** 提交过一次后，才对缺失的必填项做字段级标红，避免刚打开就一片红框。 */
   const [fieldErrors, setFieldErrors] = useState(false);
   const hasSavedPassword = draft.hasPassword;
+  async function refreshIdentities() {
+    const values = await command<SshIdentity[]>("identities_list");
+    setIdentities(values);
+    return values;
+  }
+  useEffect(() => {
+    void refreshIdentities().catch((value) => setError(errorMessage(value)));
+  }, []);
   const missing = {
     name: !draft.name.trim(),
     address: !draft.address.trim(),
@@ -115,10 +125,46 @@ export function HostEditor({
     secret:
       authMode === "password"
         ? !password && !hasSavedPassword
-        : !draft.identityFile.trim(),
+        : !draft.identityId,
   };
   function update<K extends keyof LocalHost>(key: K, value: LocalHost[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
+  }
+  async function importIdentity() {
+    setError("");
+    try {
+      const path = await command<string | null>("identity_file_pick");
+      if (!path) return;
+      const existing = identities.find((identity) => identity.path === path);
+      if (existing) {
+        update("identityId", existing.id);
+        update("identityFile", existing.path);
+        return;
+      }
+      const baseName = path.split(/[\\/]/).pop() || "SSH 密钥";
+      const existingNames = new Set(identities.map((identity) => identity.name));
+      let name = baseName;
+      let suffix = 2;
+      while (existingNames.has(name)) {
+        name = `${baseName} (${suffix})`;
+        suffix += 1;
+      }
+      const identity = await command<SshIdentity>("identity_save", {
+        identity: {
+          id: crypto.randomUUID(),
+          name,
+          path,
+          keyType: "",
+          fingerprint: "",
+        },
+      });
+      await refreshIdentities();
+      update("identityId", identity.id);
+      update("identityFile", identity.path);
+      toast.success("SSH 密钥已导入");
+    } catch (value) {
+      setError(errorMessage(value));
+    }
   }
   /** 端口步进：保持在 1–65535，输入为空时按 22 起步。 */
   function stepPort(delta: number) {
@@ -168,7 +214,7 @@ export function HostEditor({
       setError(
         authMode === "password"
           ? "请填写主机名称、IP 地址、SSH 用户与 SSH 密码。"
-          : "请填写主机名称、IP 地址、SSH 用户与私钥路径。",
+          : "请填写主机名称、IP 地址、SSH 用户并选择 SSH 密钥。",
       );
       return;
     }
@@ -276,6 +322,7 @@ export function HostEditor({
                     checked={authMode === "password"}
                     onChange={() => {
                       setAuthMode("password");
+                      update("identityId", null);
                       update("identityFile", "");
                     }}
                   />
@@ -326,40 +373,46 @@ export function HostEditor({
               </Row>
             ) : (
               <Row
-                label="SSH 私钥"
-                htmlFor="host-key"
+                label="SSH 密钥"
                 required
                 invalid={fieldErrors && missing.secret}
               >
-                <div className="host-form-inline">
-                  <Input
-                    id="host-key"
-                    placeholder="~/.ssh/id_ed25519"
-                    aria-invalid={fieldErrors && missing.secret}
-                    value={draft.identityFile}
-                    onChange={(event) =>
-                      update("identityFile", event.target.value)
-                    }
+                <div className="host-identity-picker">
+                  <Choice
+                    label="SSH 密钥"
+                    value={draft.identityId ?? ""}
+                    placeholder={identities.length ? "请选择 SSH 密钥" : "暂无 SSH 密钥"}
+                    disabled={!identities.length}
+                    triggerClassName="identity-select__trigger"
+                    contentClassName="identity-select__content"
+                    contentPosition="popper"
+                    onChange={(value) => {
+                      const identity = identities.find((item) => item.id === value);
+                      if (!identity) return;
+                      update("identityId", identity.id);
+                      update("identityFile", identity.path);
+                    }}
+                    options={identities.map((identity) => ({
+                      value: identity.id,
+                      label: `${identity.name} · ${identity.keyType}`,
+                    }))}
                   />
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="icon-sm"
-                    aria-label="选择 SSH 私钥"
-                    title="选择 SSH 私钥"
-                    onClick={() =>
-                      void command<string | null>("identity_file_pick")
-                        .then((path) => {
-                          if (path) update("identityFile", path);
-                        })
-                        .catch((error) => setError(errorMessage(error)))
-                    }
+                    className="host-identity-import"
+                    aria-label="导入 SSH 密钥到身份库"
+                    title="导入 SSH 密钥到身份库"
+                    onClick={() => void importIdentity()}
                   >
-                    <FolderOpen />
+                    <Upload />
                   </Button>
                 </div>
                 <p className="host-form-tip">
-                  私钥优先于密码；填写口令时可在上方「SSH 密码」切换为密码认证。
+                  {identities.length
+                    ? "身份库仅保存名称、路径和指纹，私钥文件始终留在原位置。"
+                    : "请导入 SSH 密钥，或先在“设置 - SSH 密钥”中添加身份。"}
                 </p>
               </Row>
             )}

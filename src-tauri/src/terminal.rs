@@ -1019,6 +1019,7 @@ mod tests {
             port: fixture["port"].as_u64().context("port")? as u16,
             username: "fixture".into(),
             group: String::new(),
+            identity_id: None,
             identity_file: fixture["identity"].as_str().context("identity")?.into(),
             note: String::new(),
             tags: vec![],

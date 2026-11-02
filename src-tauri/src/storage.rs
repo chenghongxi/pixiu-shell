@@ -13,6 +13,8 @@ pub(crate) struct LocalHost {
     pub port: u16,
     pub username: String,
     pub group: String,
+    #[serde(default)]
+    pub identity_id: Option<Uuid>,
     pub identity_file: String,
     pub note: String,
     #[serde(default)]
@@ -23,6 +25,18 @@ pub(crate) struct LocalHost {
     pub has_password: bool,
     #[serde(default)]
     pub proxy: Option<crate::proxy::Proxy>,
+}
+
+/// A reusable SSH private-key reference. The private key remains at its
+/// original filesystem path; Pixiu only stores metadata and the path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SshIdentity {
+    pub id: Uuid,
+    pub name: String,
+    pub path: String,
+    pub key_type: String,
+    pub fingerprint: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,7 +145,7 @@ impl Tunnel {
 // Initialization can be requested concurrently by several IPC commands. Serialize
 // only migrations; established connections must remain genuine read connections.
 static MIGRATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 pub(crate) fn open(path: &Path) -> Result<Connection> {
     let mut connection = Connection::open(path).context("无法打开 Pixiu Shell SQLite 数据库")?;
@@ -158,7 +172,11 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
             group_name TEXT NOT NULL, identity_file TEXT NOT NULL, note TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS host_groups(name TEXT PRIMARY KEY CHECK(length(name)>0));",
+        CREATE TABLE IF NOT EXISTS host_groups(name TEXT PRIMARY KEY CHECK(length(name)>0));
+        CREATE TABLE IF NOT EXISTS ssh_identities (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, path TEXT NOT NULL UNIQUE,
+            key_type TEXT NOT NULL, fingerprint TEXT NOT NULL
+        );",
     )?;
     let columns: Vec<String> = {
         let mut statement = tx.prepare("PRAGMA table_info(local_hosts)")?;
@@ -171,6 +189,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
         ("tags", "TEXT NOT NULL DEFAULT '[]'"),
         ("tunnels", "TEXT NOT NULL DEFAULT '[]'"),
         ("has_password", "INTEGER NOT NULL DEFAULT 0"),
+        ("identity_id", "TEXT"),
     ] {
         if !columns.iter().any(|column| column == name) {
             tx.execute_batch(&format!(
@@ -185,7 +204,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
 }
 
 pub(crate) fn list(connection: &Connection) -> Result<Vec<LocalHost>> {
-    let mut statement = connection.prepare("SELECT id,name,address,port,username,group_name,identity_file,note,tags,tunnels,has_password,proxy FROM local_hosts ORDER BY group_name,name")?;
+    let mut statement = connection.prepare("SELECT h.id,h.name,h.address,h.port,h.username,h.group_name,h.identity_id,COALESCE(i.path,h.identity_file),h.note,h.tags,h.tunnels,h.has_password,h.proxy FROM local_hosts h LEFT JOIN ssh_identities i ON i.id=h.identity_id ORDER BY h.group_name,h.name")?;
     let hosts = statement.query_map([], |row| {
         let id: String = row.get(0)?;
         Ok((
@@ -197,26 +216,27 @@ pub(crate) fn list(connection: &Connection) -> Result<Vec<LocalHost>> {
                 port: row.get(3)?,
                 username: row.get(4)?,
                 group: row.get(5)?,
-                identity_file: row.get(6)?,
-                note: row.get(7)?,
-                tags: serde_json::from_str(&row.get::<_, String>(8)?).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        8,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?,
-                tunnels: serde_json::from_str(&row.get::<_, String>(9)?).map_err(|error| {
+                identity_id: row.get::<_, Option<String>>(6)?.map(|id| Uuid::parse_str(&id)).transpose().map_err(|error| rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(error)))?,
+                identity_file: row.get(7)?,
+                note: row.get(8)?,
+                tags: serde_json::from_str(&row.get::<_, String>(9)?).map_err(|error| {
                     rusqlite::Error::FromSqlConversionFailure(
                         9,
                         rusqlite::types::Type::Text,
                         Box::new(error),
                     )
                 })?,
-                has_password: row.get(10)?,
-                proxy: serde_json::from_str(&row.get::<_, String>(11)?).map_err(|error| {
+                tunnels: serde_json::from_str(&row.get::<_, String>(10)?).map_err(|error| {
                     rusqlite::Error::FromSqlConversionFailure(
-                        11,
+                        10,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?,
+                has_password: row.get(11)?,
+                proxy: serde_json::from_str(&row.get::<_, String>(12)?).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        12,
                         rusqlite::types::Type::Text,
                         Box::new(error),
                     )
@@ -234,6 +254,9 @@ pub(crate) fn list(connection: &Connection) -> Result<Vec<LocalHost>> {
 }
 
 pub(crate) fn save(connection: &Connection, mut host: LocalHost) -> Result<LocalHost> {
+    if let Some(identity_id) = host.identity_id {
+        host.identity_file = identity_path(connection, identity_id)?;
+    }
     host.validate()?;
     let id = host.id.unwrap_or_else(Uuid::new_v4);
     let tx = connection.unchecked_transaction()?;
@@ -243,12 +266,55 @@ pub(crate) fn save(connection: &Connection, mut host: LocalHost) -> Result<Local
             [&host.group],
         )?;
     }
-    tx.execute("INSERT INTO local_hosts(id,name,address,port,username,group_name,identity_file,note,tags,tunnels,has_password,proxy) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
-        ON CONFLICT(id) DO UPDATE SET name=excluded.name,address=excluded.address,port=excluded.port,username=excluded.username,group_name=excluded.group_name,identity_file=excluded.identity_file,note=excluded.note,tags=excluded.tags,tunnels=excluded.tunnels,has_password=excluded.has_password,proxy=excluded.proxy",
-        params![id.to_string(),host.name,host.address,host.port,host.username,host.group,host.identity_file,host.note,serde_json::to_string(&host.tags)?,serde_json::to_string(&host.tunnels)?,host.has_password,serde_json::to_string(&host.proxy)?])?;
+    tx.execute("INSERT INTO local_hosts(id,name,address,port,username,group_name,identity_id,identity_file,note,tags,tunnels,has_password,proxy) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
+        ON CONFLICT(id) DO UPDATE SET name=excluded.name,address=excluded.address,port=excluded.port,username=excluded.username,group_name=excluded.group_name,identity_id=excluded.identity_id,identity_file=excluded.identity_file,note=excluded.note,tags=excluded.tags,tunnels=excluded.tunnels,has_password=excluded.has_password,proxy=excluded.proxy",
+        params![id.to_string(),host.name,host.address,host.port,host.username,host.group,host.identity_id.map(|value| value.to_string()),host.identity_file,host.note,serde_json::to_string(&host.tags)?,serde_json::to_string(&host.tunnels)?,host.has_password,serde_json::to_string(&host.proxy)?])?;
     tx.commit()?;
     host.id = Some(id);
     Ok(host)
+}
+
+pub(crate) fn identities(connection: &Connection) -> Result<Vec<SshIdentity>> {
+    connection
+        .prepare("SELECT id,name,path,key_type,fingerprint FROM ssh_identities ORDER BY name")?
+        .query_map([], |row| {
+            Ok(SshIdentity {
+                id: Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|error| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error)))?,
+                name: row.get(1)?,
+                path: row.get(2)?,
+                key_type: row.get(3)?,
+                fingerprint: row.get(4)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(Into::into)
+}
+
+fn identity_path(connection: &Connection, id: Uuid) -> Result<String> {
+    connection
+        .query_row("SELECT path FROM ssh_identities WHERE id=?1", [id.to_string()], |row| row.get(0))
+        .context("选择的 SSH 身份不存在，请重新选择")
+}
+
+pub(crate) fn save_identity(connection: &Connection, mut identity: SshIdentity) -> Result<SshIdentity> {
+    crate::identity::inspect(&mut identity)?;
+    let tx = connection.unchecked_transaction()?;
+    tx.execute("INSERT INTO ssh_identities(id,name,path,key_type,fingerprint) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET name=excluded.name,path=excluded.path,key_type=excluded.key_type,fingerprint=excluded.fingerprint", params![identity.id.to_string(), identity.name, identity.path, identity.key_type, identity.fingerprint])?;
+    tx.commit()?;
+    Ok(identity)
+}
+
+/// Removing an entry leaves every host's last resolved path intact. This only
+/// removes Pixiu's reusable reference; it never touches the user's key file.
+pub(crate) fn delete_identity(connection: &Connection, id: Uuid) -> Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE local_hosts SET identity_file=(SELECT path FROM ssh_identities WHERE id=?1),identity_id=NULL WHERE identity_id=?2",
+        params![id.to_string(), id.to_string()],
+    )?;
+    tx.execute("DELETE FROM ssh_identities WHERE id=?1", [id.to_string()])?;
+    tx.commit()?;
+    Ok(())
 }
 
 pub(crate) fn groups(connection: &Connection) -> Result<Vec<String>> {
@@ -383,6 +449,7 @@ mod tests {
             port: 22,
             username: "ops".into(),
             group: "本地".into(),
+            identity_id: None,
             identity_file: String::new(),
             note: String::new(),
             tags: vec![],
@@ -462,6 +529,37 @@ mod tests {
         let result = list(&open(&path)?)?;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "修改后的名称");
+        Ok(())
+    }
+
+    #[test]
+    fn identity_references_resolve_and_delete_keeps_the_key_path() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = open(&directory.path().join("identities.db"))?;
+        let path = directory.path().join("id_ed25519");
+        std::fs::write(
+            &path,
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----\n",
+        )?;
+        let identity = save_identity(
+            &db,
+            SshIdentity {
+                id: Uuid::new_v4(),
+                name: "production".into(),
+                path: path.to_string_lossy().into_owned(),
+                key_type: String::new(),
+                fingerprint: String::new(),
+            },
+        )?;
+        let mut record = host();
+        record.identity_id = Some(identity.id);
+        let saved = save(&db, record)?;
+        assert_eq!(saved.identity_file, identity.path);
+        assert_eq!(list(&db)?[0].identity_id, Some(identity.id));
+        delete_identity(&db, identity.id)?;
+        let restored = list(&db)?.remove(0);
+        assert_eq!(restored.identity_id, None);
+        assert_eq!(restored.identity_file, identity.path);
         Ok(())
     }
 

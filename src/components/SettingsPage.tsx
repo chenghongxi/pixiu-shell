@@ -27,6 +27,7 @@ import {
   Sparkles,
   Search,
   RefreshCw,
+  KeyRound,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -58,6 +59,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { BatchImportDialog } from "./BatchImportDialog";
 import { HostEditor } from "./HostEditor";
+import { IdentityManager } from "./IdentityManager";
 import { Choice } from "./Choice";
 import { applyWindowOpacity, terminalThemes } from "@/lib/themes";
 import {
@@ -324,6 +326,10 @@ export function SettingsPage({
             <Server />
             主机管理
           </TabsTrigger>
+          <TabsTrigger value="identities">
+            <KeyRound />
+            SSH 密钥
+          </TabsTrigger>
           <TabsTrigger value="platform">
             <Building2 />
             运维平台
@@ -375,6 +381,9 @@ export function SettingsPage({
               onStatus={onLockStatus}
               onLock={onLock}
             />
+          </TabsContent>
+          <TabsContent value="identities">
+            <IdentityManager />
           </TabsContent>
           <TabsContent value="ai">
             <form onSubmit={saveAi} className="settings-form">

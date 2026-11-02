@@ -8,6 +8,7 @@ mod credentials;
 mod dingtalk;
 mod files;
 mod hostkey;
+mod identity;
 mod migrate;
 mod monitor;
 mod platform;
@@ -519,6 +520,9 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 commands::batch_hosts_import,
                 commands::batch_hosts_template_save,
                 commands::identity_file_pick,
+                commands::identities_list,
+                commands::identity_save,
+                commands::identity_delete,
                 commands::dingtalk_open,
                 commands::dingtalk_close,
                 commands::dingtalk_status,

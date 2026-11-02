@@ -16,6 +16,7 @@ export interface LocalHost {
   port: number;
   username: string;
   group: string;
+  identityId: string | null;
   identityFile: string;
   note: string;
   tags: string[];
@@ -197,6 +198,13 @@ export function errorMessage(error: unknown) {
   if (lower.includes("permission denied")) return "权限不足";
   if (lower.includes("no such file")) return "文件或目录不存在";
   return text;
+}
+export interface SshIdentity {
+  id: string;
+  name: string;
+  path: string;
+  keyType: string;
+  fingerprint: string;
 }
 export function fromLocal(host: LocalHost): Host {
   if (!host.id) throw new Error("本地主机缺少 ID");

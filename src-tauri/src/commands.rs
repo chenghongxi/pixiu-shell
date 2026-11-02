@@ -206,6 +206,7 @@ impl BatchImportHost {
             port: self.port(row)?,
             username: self.ssh_user.trim().into(),
             group: self.group.trim().into(),
+            identity_id: None,
             identity_file: String::new(),
             note: "从批量导入创建".into(),
             tags: vec!["批量导入".into()],
@@ -609,6 +610,7 @@ fn import_openssh_config(path: &Path, db: &std::path::Path) -> Result<usize> {
                     host.user
                 },
                 group: "OpenSSH 导入".into(),
+                identity_id: None,
                 identity_file: host.identity_file,
                 note: "从 OpenSSH config 导入".into(),
                 tags: vec!["OpenSSH".into()],
@@ -1171,6 +1173,44 @@ pub(crate) async fn file_delete(
             Ok(())
         }
     }
+}
+
+#[tauri::command]
+pub(crate) async fn identities_list(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<storage::SshIdentity>> {
+    let path = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || storage::identities(&storage::open(&path)?))
+        .await
+        .map_err(error)?
+        .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn identity_save(
+    state: State<'_, AppState>,
+    identity: storage::SshIdentity,
+) -> CommandResult<storage::SshIdentity> {
+    let path = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let db = storage::open(&path)?;
+        storage::save_identity(&db, identity)
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn identity_delete(
+    state: State<'_, AppState>,
+    id: Uuid,
+) -> CommandResult<()> {
+    let path = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || storage::delete_identity(&storage::open(&path)?, id))
+        .await
+        .map_err(error)?
+        .map_err(error)
 }
 
 #[tauri::command]
