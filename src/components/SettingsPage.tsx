@@ -1000,7 +1000,7 @@ export function SettingsPage({
                     <SelectTrigger className="host-pagination__size" aria-label="每页条数">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="host-pagination__size-content">
+                    <SelectContent className="host-pagination__size-content" position="popper" side="bottom" align="start" sideOffset={6}>
                       {[10, 20, 30, 50, 100].map((size) => (
                         <SelectItem key={size} value={String(size)}>
                           {size}条/页
