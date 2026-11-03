@@ -829,21 +829,6 @@
   color: var(--muted-foreground);
   margin-top: 6px;
 }
-/* 主机管理：对齐 pixiu-ui 主机管理页（提示条 → 工具栏 → 表格），段间距 10px */
-.host-manage {
-  /* pixiu-ui 暗色主题运行时的 --el-color-primary。 */
-  --primary: #5d87ff;
-  --host-link: #5d87ff;
-  --host-table-link-primary: #5d87ff;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  margin: -13px clamp(-24px, -1.4vw, -12px) -26px;
-  padding: 13px clamp(12px, 1.4vw, 24px) 26px;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
 .workspace-host-tools {
   --primary: #5d87ff;
   --host-link: #5d87ff;
@@ -865,19 +850,12 @@
 .workspace-host-tools .host-link {
   color: var(--host-link);
 }
-.data-table.workspace-host-table,
-.host-table {
+.data-table.workspace-host-table {
   font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
   font-size: 12px;
   font-weight: 400;
 }
-.host-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-.data-table.workspace-host-table th,
-.host-table th {
+.data-table.workspace-host-table th {
   height: 50px;
   padding: 0 16px;
   border-bottom: 1px solid #484848;
@@ -890,8 +868,7 @@
   line-height: 23px;
   white-space: nowrap;
 }
-.data-table.workspace-host-table td,
-.host-table td {
+.data-table.workspace-host-table td {
   height: 50px;
   padding: 0 16px;
   border-bottom: 1px solid #484848;
@@ -901,17 +878,14 @@
   font-weight: 400;
   vertical-align: middle;
 }
-.data-table.workspace-host-table td.mono,
-.host-table td.mono {
+.data-table.workspace-host-table td.mono {
   font-family: inherit;
   font-size: 12px;
 }
-.data-table.workspace-host-table tbody tr:nth-child(even),
-.host-table tbody tr:nth-child(even) {
+.data-table.workspace-host-table tbody tr:nth-child(even) {
   background: var(--surface);
 }
-.data-table.workspace-host-table tbody tr:hover,
-.host-table tbody tr:hover {
+.data-table.workspace-host-table tbody tr:hover {
   background: var(--hover);
 }
 .workspace-host-table tbody tr[data-selected="true"] {
@@ -1019,18 +993,6 @@
 }
 .workspace-host-pagination {
   border-top: 1px solid #484848;
-}
-.dark .host-manage {
-  --foreground: #c7c7d1;
-  --muted-foreground: #9b9ba3;
-  --border: #303030;
-  --card-solid: #181818;
-  --surface-solid: #1f1f1f;
-  --input-solid: #141414;
-  --active-solid: #252525;
-  --popover-solid: #1f1f1f;
-  --host-link: #5d87ff;
-  color: #c7c7d1;
 }
 /* 提示条：对齐 pixiu-ui 的 page-notice —— 45px 高、蓝底蓝字、无描边 */
 .host-notice {
@@ -1170,10 +1132,6 @@
   cursor: pointer;
   white-space: nowrap;
 }
-/* 主机管理页的链接跟随本页主色，与新增主机按钮同一支蓝 */
-.host-manage .host-link {
-  color: var(--host-link);
-}
 .host-link:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -1238,12 +1196,6 @@
 .host-filter [data-slot="input"]:focus-visible {
   border: 0;
   box-shadow: none;
-}
-.host-table-wrap {
-  overflow: hidden;
-  border: 0;
-  border-radius: 7px;
-  background: var(--card);
 }
 .host-pagination {
   display: flex;
@@ -1334,111 +1286,6 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.host-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-.host-table tbody tr[data-selected="true"] {
-  background: color-mix(in srgb, var(--primary) 7%, transparent);
-}
-.host-table__check {
-  width: 48px;
-  padding-right: 0;
-}
-.host-table input[type="checkbox"] {
-  width: 13px;
-  height: 13px;
-  margin: 0;
-  accent-color: var(--primary);
-  cursor: pointer;
-}
-.host-table__name {
-  font-weight: 500;
-  color: #5d87ff;
-}
-.host-table__port {
-  width: 110px;
-  font-variant-numeric: tabular-nums;
-}
-.host-table__actions-head {
-  width: 200px;
-  white-space: nowrap;
-}
-.host-table__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-.host-table__actions .host-link {
-  /* Mirrors pixiu-ui's ElLink type=primary in safeguard/host. */
-  appearance: none;
-  -webkit-appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--host-table-link-primary) !important;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: normal;
-  text-decoration: none;
-}
-.host-table__actions .host-link:hover {
-  color: #415eb2 !important;
-  text-decoration: none;
-}
-.host-table__actions .host-link:disabled {
-  color: #2e437f !important;
-}
-.host-more {
-  position: relative;
-}
-.host-more__trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-.host-more__trigger svg {
-  width: 12px;
-  height: 12px;
-}
-.host-more__menu {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 5px);
-  right: 0;
-  display: flex;
-  flex-direction: column;
-  min-width: 80px;
-  padding: 6px;
-  border: 0;
-  border-radius: 10px;
-  background: #161618;
-  box-shadow: 0 6px 16px rgb(0 0 0 / 8%), 0 3px 6px rgb(0 0 0 / 12%),
-    0 9px 28px rgb(0 0 0 / 5%);
-  white-space: normal;
-}
-.host-more__menu button {
-  display: block;
-  width: 100%;
-  height: 32px;
-  padding: 6px 16px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #e3e3e8;
-  font-size: 12px;
-  line-height: 20px;
-  text-align: left;
-  white-space: nowrap;
-}
-.host-more__menu button:hover {
-  background: #2e2e38;
-  color: #e3e3e8;
-}
 /* pixiu-ui ElSelect dropdown used by the host pagination control. */
 .dark .host-pagination__size-content[data-slot="select-content"] {
   min-width: var(--radix-select-trigger-width);
@@ -1474,9 +1321,6 @@
   font-weight: 400;
 }
 .dark .host-pagination__size-content [data-slot="select-item-indicator"] {
-  display: none;
-}
-.host-engine {
   display: none;
 }
 /* 深色遮罩压暗到 25%：页面与弹窗亮度差收窄，窗口透明度调低时弹窗不再显得突兀地亮 */
@@ -1697,9 +1541,6 @@
   .host-filter {
     flex: 1 1 160px;
     width: auto;
-  }
-  .host-table__actions {
-    gap: 10px;
   }
   .host-pagination {
     justify-content: flex-start;
@@ -2577,27 +2418,6 @@
   margin: 0 0 20px;
 }
 
-/* 主机管理沿用 shell 的设置页底色；表格本身仍是独立卡片。 */
-.settings-section.host-manage {
-  min-height: 0;
-  margin: -13px clamp(-24px, -1.4vw, -12px) -26px;
-  padding: 13px clamp(12px, 1.4vw, 24px) 26px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.dark .settings-section.host-manage {
-  --foreground: #c7c7d1;
-  --muted-foreground: #9b9ba3;
-  --border: #303030;
-  --card-solid: #181818;
-  --surface-solid: #1f1f1f;
-  --input-solid: #141414;
-  --active-solid: #252525;
-  --popover-solid: #1f1f1f;
-  color: #c7c7d1;
-}
 .settings-section > h2 {
   display: flex;
   align-items: center;
@@ -8554,31 +8374,6 @@ body .host-search-dialog > .host-search-results {
   min-width: 76px;
   padding: 0 14px;
   font-size: 13px;
-}
-
-/* 主机管理使用 shell 原有的设置内容区底色，不铺纯黑工作面。 */
-.settings-page[data-settings-tab="hosts"] .settings-main {
-  background: var(--background);
-}
-.settings-page[data-settings-tab="hosts"] .settings-section.host-manage {
-  margin: -13px clamp(-24px, -1.4vw, -12px) -26px;
-  padding: 13px clamp(12px, 1.4vw, 24px) 26px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.dark .settings-page[data-settings-tab="hosts"] .settings-section.host-manage {
-  --foreground: #c7c7d1;
-  --muted-foreground: #9b9ba3;
-  --border: #303030;
-  --card-solid: #181818;
-  --surface-solid: #1f1f1f;
-  --input-solid: #141414;
-  --active-solid: #252525;
-  --popover-solid: #1f1f1f;
-  background: transparent;
-  color: #c7c7d1;
 }
 
 .file-row-actions {

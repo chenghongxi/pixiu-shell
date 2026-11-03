@@ -222,7 +222,6 @@ export default function App() {
   );
   const [settingsTab, setSettingsTab] = useState("appearance");
   const [resourceCreateRequest, setResourceCreateRequest] = useState(0);
-  const [createRequest, setCreateRequest] = useState(0);
   const [user, setUser] = useState<User | null>(null);
   const [localHosts, setLocalHosts] = useState<LocalHost[]>([]);
   const [localGroups, setLocalGroups] = useState<string[]>([]);
@@ -249,8 +248,9 @@ export default function App() {
   const [workspaceMoreOpen, setWorkspaceMoreOpen] = useState<string | null>(
     null,
   );
-  const [workspaceDeleteHost, setWorkspaceDeleteHost] =
-    useState<LocalHost | null>(null);
+  const [workspaceDeleteHosts, setWorkspaceDeleteHosts] = useState<
+    LocalHost[]
+  >([]);
   const [workspaceHostKeyword, setWorkspaceHostKeyword] = useState("");
   const [workspaceHostNotice, setWorkspaceHostNotice] = useState(true);
   const [workspaceBatchImportOpen, setWorkspaceBatchImportOpen] =
@@ -838,10 +838,9 @@ export default function App() {
   function patchPreferences(patch: Partial<Preferences>) {
     return savePreferences({ ...prefsRef.current, ...patch });
   }
-  function settings(tab = "appearance", add = false) {
-    setSettingsTab(tab);
+  function settings(tab = "appearance") {
+    setSettingsTab(tab === "hosts" ? "appearance" : tab);
     setView("settings");
-    if (add) setCreateRequest((value) => value + 1);
   }
   async function testWorkspaceHost(host: LocalHost) {
     setWorkspaceCheckingHost(host.id);
@@ -861,11 +860,19 @@ export default function App() {
     }
   }
   async function deleteWorkspaceHost() {
-    if (!workspaceDeleteHost?.id) return;
+    if (!workspaceDeleteHosts.length) return;
     try {
-      await command("delete_host", { id: workspaceDeleteHost.id });
-      toast.success(`已删除 ${workspaceDeleteHost.name}`);
-      setWorkspaceDeleteHost(null);
+      for (const host of workspaceDeleteHosts) {
+        if (!host.id) continue;
+        await command("delete_host", { id: host.id });
+      }
+      toast.success(
+        workspaceDeleteHosts.length === 1
+          ? `已删除 ${workspaceDeleteHosts[0].name}`
+          : `已删除 ${workspaceDeleteHosts.length} 台主机`,
+      );
+      setWorkspaceDeleteHosts([]);
+      setWorkspaceSelectedHosts([]);
       setWorkspaceMoreOpen(null);
       await refreshLocal();
     } catch (error) {
@@ -1739,7 +1746,7 @@ export default function App() {
                   className="sidebar-heading__icon"
                   aria-label="添加主机"
                   title="添加主机"
-                  onClick={() => settings("hosts", true)}
+                  onClick={() => setHostCreateOpen(true)}
                 >
                   <Plus />
                 </Button>
@@ -1988,16 +1995,8 @@ export default function App() {
               refreshPlatform={refreshPlatform}
               preferences={preferences}
               onSave={savePreferences}
-              hosts={localHosts}
-              refresh={refreshLocal}
-              onConnect={(host) => {
-                // 设置页点「登录」直接切回工作区开终端，避免用户再找一次主机。
-                setView("workspace");
-                void connect(fromLocal(host), "terminal");
-              }}
               tab={settingsTab}
               onTab={setSettingsTab}
-              createRequest={createRequest}
             />
           </div>
           <div className="scripts-workspace" hidden={view !== "scripts"}>
@@ -2131,14 +2130,43 @@ export default function App() {
                         </div>
                       ) : null}
                       <div className="host-toolbar">
-                        <Button
-                          className="host-primary-action"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setHostCreateOpen(true)}
-                        >
-                          新增主机
-                        </Button>
+                        {workspaceSelectedHosts.length === 0 ? (
+                          <Button
+                            className="host-primary-action"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setHostCreateOpen(true)}
+                          >
+                            新增主机
+                          </Button>
+                        ) : (
+                          <div className="host-toolbar__selected">
+                            <span>已选 {workspaceSelectedHosts.length} 项</span>
+                            <button
+                              type="button"
+                              className="host-link"
+                              onClick={() => setWorkspaceSelectedHosts([])}
+                            >
+                              清空
+                            </button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const selected = localHosts.filter(
+                                  (host) =>
+                                    !!host.id &&
+                                    workspaceSelectedHosts.includes(host.id),
+                                );
+                                if (selected.length) {
+                                  setWorkspaceDeleteHosts(selected);
+                                }
+                              }}
+                            >
+                              批量删除
+                            </Button>
+                          </div>
+                        )}
                         <div className="host-toolbar__right">
                           <div className="host-toolbar__links">
                             <button
@@ -2390,9 +2418,9 @@ export default function App() {
                                               type="button"
                                               role="menuitem"
                                               onClick={() =>
-                                                setWorkspaceDeleteHost(
+                                                setWorkspaceDeleteHosts([
                                                   host.local!,
-                                                )
+                                                ])
                                               }
                                             >
                                               删除
@@ -2436,7 +2464,7 @@ export default function App() {
                               variant="outline"
                               onClick={() =>
                                 mode === "local"
-                                  ? settings("hosts", true)
+                                  ? setHostCreateOpen(true)
                                   : login()
                               }
                             >
@@ -3209,14 +3237,18 @@ export default function App() {
         />
       ) : null}
       <Dialog
-        open={!!workspaceDeleteHost}
+        open={workspaceDeleteHosts.length > 0}
         onOpenChange={(open) => {
-          if (!open) setWorkspaceDeleteHost(null);
+          if (!open) setWorkspaceDeleteHosts([]);
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除主机“{workspaceDeleteHost?.name}”？</DialogTitle>
+            <DialogTitle>
+              {workspaceDeleteHosts.length > 1
+                ? `删除选中的 ${workspaceDeleteHosts.length} 台主机？`
+                : `删除主机“${workspaceDeleteHosts[0]?.name}”？`}
+            </DialogTitle>
             <DialogDescription>
               本地主机配置及保存的凭据将被删除。已打开的会话不受影响。
             </DialogDescription>
@@ -3224,7 +3256,7 @@ export default function App() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setWorkspaceDeleteHost(null)}
+              onClick={() => setWorkspaceDeleteHosts([])}
             >
               取消
             </Button>
