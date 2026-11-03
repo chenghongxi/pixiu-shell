@@ -1124,6 +1124,7 @@
 /* 主操作按钮：对齐 pixiu-ui 的 ElButton 默认态（36px、#141414 底、主色描边）。 */
 .host-primary-action[data-slot="button"][data-variant="outline"] {
   height: 36px;
+  padding: 0 15px;
   border: 1px solid var(--primary);
   border-radius: 4px;
   background: #141414;
@@ -1131,9 +1132,6 @@
   color: var(--primary);
   font-size: 14px;
   font-weight: 400;
-}
-.host-primary-action[data-slot="button"][data-variant="outline"] {
-  padding: 0 15px;
 }
 .host-primary-action[data-slot="button"][data-variant="outline"]:hover {
   /* pixiu-ui's dark ElButton: --el-color-primary-light-9. */
@@ -1409,9 +1407,11 @@
 }
 .host-more__menu {
   position: absolute;
-  z-index: 20;
+  z-index: 30;
   top: calc(100% + 5px);
   right: 0;
+  display: flex;
+  flex-direction: column;
   min-width: 80px;
   padding: 6px;
   border: 0;
@@ -1419,8 +1419,10 @@
   background: #161618;
   box-shadow: 0 6px 16px rgb(0 0 0 / 8%), 0 3px 6px rgb(0 0 0 / 12%),
     0 9px 28px rgb(0 0 0 / 5%);
+  white-space: normal;
 }
 .host-more__menu button {
+  display: block;
   width: 100%;
   height: 32px;
   padding: 6px 16px;
@@ -1431,6 +1433,7 @@
   font-size: 12px;
   line-height: 20px;
   text-align: left;
+  white-space: nowrap;
 }
 .host-more__menu button:hover {
   background: #2e2e38;
@@ -1448,6 +1451,7 @@
   font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
 }
 .dark .host-pagination__size-content [data-slot="select-viewport"] {
+  height: auto;
   padding: 0;
 }
 .dark .host-pagination__size-content [data-slot="select-item"] {
@@ -2635,6 +2639,9 @@
   font-size: 11px;
   line-height: 1.6;
 }
+.identity-list__empty {
+  padding: 22px 4px;
+}
 .identity-list {
   border-top: 1px solid var(--border);
   width: 100%;
@@ -2676,11 +2683,71 @@
 }
 .identity-list__actions {
   display: flex;
+  align-items: center;
   gap: 2px;
   margin-left: 24px;
 }
-.identity-list__empty {
-  padding: 22px 4px;
+.identity-list .host-pagination {
+  padding: 12px 8px 4px;
+}
+.dropdown-menu-content {
+  z-index: 60;
+  min-width: 88px;
+  width: max-content;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--popover-solid);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 28%);
+}
+.dropdown-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 6px;
+  color: var(--foreground);
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+.dropdown-menu-item:focus {
+  background: var(--active-solid);
+}
+.identity-public-key {
+  display: grid;
+  gap: 8px;
+}
+.identity-public-key__field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.identity-public-key__field [data-slot="input"] {
+  height: 36px;
+  padding-right: 44px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  caret-color: transparent;
+  user-select: none;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+.identity-public-key__copy[data-slot="button"] {
+  position: absolute;
+  z-index: 1;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  background: #141414;
+  color: var(--muted-foreground);
+}
+.identity-public-key__copy[data-slot="button"]:hover {
+  background: #141414;
+  color: var(--foreground);
 }
 .identity-dialog[data-slot="dialog-content"] {
   width: min(520px, calc(100vw - 32px));
@@ -2933,6 +3000,51 @@
 .dark .identity-dialog__select-content [data-slot="select-item-indicator"] {
   display: none;
 }
+.dark .identity-dialog--public-key[data-slot="dialog-content"] {
+  width: min(460px, calc(100vw - 32px));
+}
+.dark .identity-dialog--public-key [data-slot="dialog-header"] {
+  padding-bottom: 14px;
+}
+.dark .identity-dialog--public-key [data-slot="dialog-description"] {
+  color: #8d9095;
+  font-size: 12px;
+}
+.dark .identity-dialog--public-key .identity-public-key {
+  padding: 8px 20px 18px;
+}
+.dark .identity-dialog--public-key .identity-public-key [data-slot="input"] {
+  border: 1px solid #4c4d4f;
+  border-radius: 4px;
+  background: #141414;
+  color: #c7c7d1;
+  box-shadow: none;
+}
+.dark .identity-dialog--public-key .identity-public-key [data-slot="input"]:hover {
+  border-color: #58585b;
+}
+.dark .identity-dialog--public-key .identity-public-key__copy[data-slot="button"] {
+  color: #8d9095;
+}
+.dark .identity-dialog--public-key .identity-public-key__copy[data-slot="button"]:hover {
+  background: #141414;
+  color: #c7c7d1;
+}
+.dark .identity-dialog--public-key [data-slot="dialog-footer"] {
+  justify-content: flex-end;
+}
+.dark .dropdown-menu-content {
+  border-color: #303030;
+  background: #161618;
+  color: #c7c7d1;
+  box-shadow: 0 8px 18px rgb(0 0 0 / 35%);
+}
+.dark .dropdown-menu-item {
+  color: #c7c7d1;
+}
+.dark .dropdown-menu-item:focus {
+  background: #252530;
+}
 .dark .identity-dialog--key-form[data-slot="dialog-content"] {
   width: min(460px, calc(100vw - 32px));
 }
@@ -2947,6 +3059,74 @@
 }
 .dark .identity-dialog--key-form [data-slot="dialog-footer"] {
   padding: 8px 16px 14px;
+}
+.delete-confirm-dialog[data-slot="dialog-content"],
+.dark .delete-confirm-dialog[data-slot="dialog-content"] {
+  width: min(400px, calc(100vw - 32px));
+}
+.delete-confirm-dialog [data-slot="dialog-header"] {
+  padding: 16px 40px 8px 16px;
+  border: 0;
+}
+.dark .delete-confirm-dialog [data-slot="dialog-header"] {
+  padding: 16px 40px 8px 16px;
+}
+.delete-confirm-dialog [data-slot="dialog-title"],
+.dark .delete-confirm-dialog [data-slot="dialog-title"] {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.delete-confirm-dialog [data-slot="dialog-close"],
+.dark .delete-confirm-dialog [data-slot="dialog-close"] {
+  top: 12px;
+  right: 12px;
+}
+.delete-confirm-dialog__body {
+  display: flex;
+  gap: 12px;
+  padding: 4px 20px 8px 16px;
+}
+.delete-confirm-dialog__icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: #e6a23c;
+}
+.delete-confirm-dialog__text {
+  flex: 1;
+  min-width: 0;
+}
+.delete-confirm-dialog__main {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.delete-confirm-dialog__main strong {
+  font-weight: 500;
+}
+.delete-confirm-dialog__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.dark .delete-confirm-dialog__hint {
+  color: #8d9095;
+}
+.delete-confirm-dialog [data-slot="dialog-footer"],
+.dark .delete-confirm-dialog [data-slot="dialog-footer"] {
+  padding: 6px 16px 16px;
+}
+.delete-confirm-dialog [data-slot="dialog-footer"] [data-slot="button"],
+.dark .delete-confirm-dialog [data-slot="dialog-footer"] [data-slot="button"] {
+  height: 32px;
+  min-height: 32px;
+  min-width: 60px;
+  padding: 0 15px;
+  font-size: 13px;
 }
 .settings-grid {
   display: grid;

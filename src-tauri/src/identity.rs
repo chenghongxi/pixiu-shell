@@ -6,6 +6,13 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PublicKey {
+    pub path: String,
+    pub content: String,
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct GenerateRequest {
@@ -67,6 +74,20 @@ pub(crate) fn public_key_path(path: &Path) -> Result<PathBuf> {
         .filter(|name| !name.is_empty())
         .context("密钥保存位置必须包含文件名")?;
     Ok(path.with_file_name(format!("{}.pub", name.to_string_lossy())))
+}
+
+pub(crate) fn read_public_key(private: &Path) -> Result<PublicKey> {
+    let path = public_key_path(private)?;
+    let content = std::fs::read_to_string(&path)
+        .with_context(|| format!("未找到对应公钥文件 {}", path.display()))?;
+    ensure!(
+        content.split_whitespace().nth(1).is_some(),
+        "公钥文件格式无效，请选择有效的 OpenSSH 公钥"
+    );
+    Ok(PublicKey {
+        path: path.to_string_lossy().into_owned(),
+        content: content.trim().to_owned(),
+    })
 }
 
 /// Read only the non-secret metadata needed to identify a key in the UI. The
@@ -166,6 +187,25 @@ mod tests {
         assert_eq!(identity.key_type, "OpenSSH");
         assert_eq!(identity.algorithm, "Ed25519");
         assert!(identity.fingerprint.starts_with("SHA256:"));
+        Ok(())
+    }
+
+    #[test]
+    fn reads_the_companion_public_key() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let private = directory.path().join("id_ed25519");
+        std::fs::write(&private, "private")?;
+        std::fs::write(
+            private.with_file_name("id_ed25519.pub"),
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEV4YW1wbGUtS2V5 comment\n",
+        )?;
+
+        let public = read_public_key(&private)?;
+        assert_eq!(
+            public.path,
+            private.with_file_name("id_ed25519.pub").display().to_string()
+        );
+        assert_eq!(public.content, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEV4YW1wbGUtS2V5 comment");
         Ok(())
     }
 

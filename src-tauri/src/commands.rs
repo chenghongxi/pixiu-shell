@@ -748,6 +748,73 @@ pub(crate) async fn identity_file_save_pick(
     .await
     .map_err(error)
 }
+
+#[tauri::command]
+pub(crate) async fn identity_public_key(
+    state: State<'_, AppState>,
+    id: Uuid,
+) -> CommandResult<crate::identity::PublicKey> {
+    let database = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let identity = storage::identities(&storage::open(&database)?)?
+            .into_iter()
+            .find(|identity| identity.id == id)
+            .context("SSH 密钥不存在，请刷新后重试")?;
+        crate::identity::read_public_key(Path::new(&identity.path))
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
+}
+
+#[tauri::command]
+pub(crate) async fn identity_reveal(
+    state: State<'_, AppState>,
+    id: Uuid,
+    public_key: Option<bool>,
+) -> CommandResult<()> {
+    let database = state.database.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let identity = storage::identities(&storage::open(&database)?)?
+            .into_iter()
+            .find(|identity| identity.id == id)
+            .context("SSH 密钥不存在，请刷新后重试")?;
+        let private = PathBuf::from(identity.path);
+        let path = if public_key == Some(true) {
+            crate::identity::public_key_path(&private)?
+        } else {
+            private
+        };
+        ensure!(path.is_file(), "密钥文件不存在，无法在文件管理器中定位");
+        reveal_in_file_manager(&path)
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
+}
+
+fn reveal_in_file_manager(path: &Path) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg(format!("/select,{}", path.display()));
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg("-R").arg(path);
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(path.parent().context("密钥文件路径无效")?);
+        command
+    };
+    command.spawn().context("无法打开系统文件管理器")?;
+    Ok(())
+}
 #[tauri::command]
 pub(crate) async fn dingtalk_open(
     app: tauri::AppHandle,
