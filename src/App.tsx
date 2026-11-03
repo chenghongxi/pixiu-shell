@@ -49,6 +49,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input, SearchInput } from "@/components/ui/input";
 import {
   Select,
@@ -75,6 +81,7 @@ import { Choice } from "@/components/Choice";
 import { PlatformLogin } from "@/components/PlatformLogin";
 import { SettingsPage } from "@/components/SettingsPage";
 import { BatchImportDialog } from "@/components/BatchImportDialog";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { FileManager } from "@/components/FileManager";
 import {
   command,
@@ -243,9 +250,6 @@ export default function App() {
   const [workspaceEditingHost, setWorkspaceEditingHost] =
     useState<LocalHost | null>(null);
   const [inlineEditingHostId, setInlineEditingHostId] = useState<string | null>(
-    null,
-  );
-  const [workspaceMoreOpen, setWorkspaceMoreOpen] = useState<string | null>(
     null,
   );
   const [workspaceDeleteHosts, setWorkspaceDeleteHosts] = useState<
@@ -873,7 +877,6 @@ export default function App() {
       );
       setWorkspaceDeleteHosts([]);
       setWorkspaceSelectedHosts([]);
-      setWorkspaceMoreOpen(null);
       await refreshLocal();
     } catch (error) {
       toast.error(errorMessage(error));
@@ -1928,6 +1931,17 @@ export default function App() {
                   <ArrowRightLeft />
                   移动至分组
                 </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHostTreeMenu(null);
+                    setWorkspaceDeleteHosts([hostTreeMenu.host]);
+                  }}
+                >
+                  <Trash2 />
+                  删除
+                </button>
               </>
             ) : (
               <>
@@ -2101,10 +2115,9 @@ export default function App() {
                       </Button>
                     </div>
                   ) : null}
-                  {!selected && mode === "local" ? (
+                  {!selected && mode === "local" && workspaceHostNotice ? (
                     <div className="workspace-host-tools">
-                      {workspaceHostNotice ? (
-                        <div className="host-notice">
+                      <div className="host-notice">
                           <svg
                             className="host-notice__icon"
                             viewBox="0 0 1024 1024"
@@ -2127,9 +2140,92 @@ export default function App() {
                           >
                             <X />
                           </button>
-                        </div>
-                      ) : null}
-                      <div className="host-toolbar">
+                      </div>
+                    </div>
+                  ) : null}
+                  {selected ? (
+                    <>
+                      <HostProfile
+                        host={selected}
+                        editing={inlineEditingHostId === selected.id}
+                        connecting={connecting}
+                        onEdit={() => setInlineEditingHostId(selected.id)}
+                        onCancelEdit={() => setInlineEditingHostId(null)}
+                        onSaved={() => {
+                          setInlineEditingHostId(null);
+                          void refreshLocal();
+                        }}
+                        onConnect={() => void connect(selected)}
+                        tab={hostProfileTab}
+                        fileSession={filesInHostProfile ? fileTarget : null}
+                        onTabChange={setHostProfileTab}
+                        onOpenFiles={() => void connect(selected, "files")}
+                        onCloseFiles={closeHostFiles}
+                        extra={
+                          selected.mode === "platform" && user ? (
+                            <HostDetails
+                              key={`${selected.mode}:${selected.id}`}
+                              host={selected}
+                            />
+                          ) : null
+                        }
+                      />
+                    </>
+                  ) : (
+                    <div className="workspace-host-list">
+                      <div className="workspace-stats">
+                        {(
+                          [
+                            {
+                              label: "可用主机",
+                              value: hosts.length,
+                              icon: <Server />,
+                            },
+                            {
+                              label: "主机分组",
+                              value: groups.size,
+                              icon: (
+                                <ObjectStorageFolderIcon className="storage-folder-icon" />
+                              ),
+                            },
+                            mode === "local"
+                              ? {
+                                  label: "私钥认证",
+                                  value: hosts.filter(
+                                    (host) => host.local?.identityFile,
+                                  ).length,
+                                  icon: <LockKeyhole />,
+                                }
+                              : {
+                                  label: "标签",
+                                  value: new Set(
+                                    hosts.flatMap((host) => host.tags),
+                                  ).size,
+                                  icon: <Tag />,
+                                },
+                            {
+                              label: "打开会话",
+                              value: sessions.length,
+                              icon: <TerminalSquare />,
+                            },
+                          ] as const
+                        ).map((stat) => (
+                          <div key={stat.label}>
+                            <span>
+                              {stat.label}
+                              <strong>{stat.value}</strong>
+                            </span>
+                            <span
+                              className="workspace-stats__icon"
+                              aria-hidden="true"
+                            >
+                              {stat.icon}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {mode === "local" ? (
+                        <div className="host-toolbar workspace-host-list-toolbar">
                         {workspaceSelectedHosts.length === 0 ? (
                           <Button
                             className="host-primary-action"
@@ -2204,63 +2300,13 @@ export default function App() {
                             </Button>
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  ) : null}
-                  {selected ? (
-                    <>
-                      <HostProfile
-                        host={selected}
-                        editing={inlineEditingHostId === selected.id}
-                        connecting={connecting}
-                        onEdit={() => setInlineEditingHostId(selected.id)}
-                        onCancelEdit={() => setInlineEditingHostId(null)}
-                        onSaved={() => {
-                          setInlineEditingHostId(null);
-                          void refreshLocal();
-                        }}
-                        onConnect={() => void connect(selected)}
-                        tab={hostProfileTab}
-                        fileSession={filesInHostProfile ? fileTarget : null}
-                        onTabChange={setHostProfileTab}
-                        onOpenFiles={() => void connect(selected, "files")}
-                        onCloseFiles={closeHostFiles}
-                        extra={
-                          selected.mode === "platform" && user ? (
-                            <HostDetails
-                              key={`${selected.mode}:${selected.id}`}
-                              host={selected}
-                            />
-                          ) : null
-                        }
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <div className="workspace-stats">
-                        <div>
-                          <Server />
-                          <span>
-                            可用主机<strong>{hosts.length}</strong>
-                          </span>
                         </div>
-                        <div>
-                          <ObjectStorageFolderIcon className="storage-folder-icon" />
-                          <span>
-                            主机分组<strong>{groups.size}</strong>
-                          </span>
+                      ) : (
+                        <div className="section-heading">
+                          <h2>授权资源</h2>
+                          <span>SSH / SFTP</span>
                         </div>
-                        <div>
-                          <TerminalSquare />
-                          <span>
-                            打开会话<strong>{sessions.length}</strong>
-                          </span>
-                        </div>
-                      </div>
-                      <div className="section-heading">
-                        <h2>{mode === "local" ? "主机列表" : "授权资源"}</h2>
-                        <span>SSH / SFTP</span>
-                      </div>
+                      )}
                       <div className="data-table-wrap">
                         <table className="data-table workspace-host-table">
                           <thead>
@@ -2390,44 +2436,28 @@ export default function App() {
                                       >
                                         编辑
                                       </button>
-                                      <div className="workspace-host-more">
-                                        <button
-                                          type="button"
-                                          className="host-link workspace-host-more__trigger"
-                                          aria-haspopup="menu"
-                                          aria-expanded={
-                                            workspaceMoreOpen === host.id
-                                          }
-                                          onClick={() =>
-                                            setWorkspaceMoreOpen((current) =>
-                                              current === host.id
-                                                ? null
-                                                : host.id,
-                                            )
-                                          }
-                                        >
-                                          更多
-                                          <ChevronDown />
-                                        </button>
-                                        {workspaceMoreOpen === host.id ? (
-                                          <div
-                                            className="workspace-host-more__menu"
-                                            role="menu"
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="host-link workspace-host-more__trigger"
                                           >
-                                            <button
-                                              type="button"
-                                              role="menuitem"
-                                              onClick={() =>
-                                                setWorkspaceDeleteHosts([
-                                                  host.local!,
-                                                ])
-                                              }
-                                            >
-                                              删除
-                                            </button>
-                                          </div>
-                                        ) : null}
-                                      </div>
+                                            更多
+                                            <ChevronDown />
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          <DropdownMenuItem
+                                            onSelect={() =>
+                                              setWorkspaceDeleteHosts([
+                                                host.local!,
+                                              ])
+                                            }
+                                          >
+                                            删除
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                     </div>
                                   ) : (
                                     <button
@@ -2576,7 +2606,7 @@ export default function App() {
                           </div>
                         ) : null}
                       </div>
-                    </>
+                    </div>
                   )}
                 </section>
                 {sessions.map((session) => (
@@ -3133,40 +3163,18 @@ export default function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog
+      <DeleteConfirmDialog
         open={!!folderDeletePath}
+        label={`确定要删除文件夹“${folderDeletePath}”吗？`}
+        hint="子文件夹会一并删除，其中的主机将变为未分组。已打开的会话不受影响。"
+        loading={folderDeleting}
         onOpenChange={(open) => {
-          if (!open && !folderDeleting) setFolderDeletePath(null);
+          if (!open) setFolderDeletePath(null);
         }}
+        onConfirm={() => void deleteFolder()}
       >
-        <DialogContent
-          className="host-folder-dialog"
-          showCloseButton={!folderDeleting}
-        >
-          <DialogHeader>
-            <DialogTitle>删除文件夹“{folderDeletePath}”？</DialogTitle>
-            <DialogDescription>
-              该文件夹及其子文件夹将被删除，其中的主机将变为未分组。已打开的会话不受影响。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={folderDeleting}
-              onClick={() => setFolderDeletePath(null)}
-            >
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={folderDeleting}
-              onClick={() => void deleteFolder()}
-            >
-              {folderDeleting ? "删除中..." : "确认删除"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        确定要删除文件夹 “<strong>{folderDeletePath}</strong>” 吗？
+      </DeleteConfirmDialog>
       <Dialog
         open={!!movingHost}
         onOpenChange={(open) => {
@@ -3236,39 +3244,29 @@ export default function App() {
           }}
         />
       ) : null}
-      <Dialog
+      <DeleteConfirmDialog
         open={workspaceDeleteHosts.length > 0}
+        label={
+          workspaceDeleteHosts.length > 1
+            ? `确定要删除选中的 ${workspaceDeleteHosts.length} 台主机吗？`
+            : `确定要删除主机“${workspaceDeleteHosts[0]?.name}”吗？`
+        }
+        hint="本地配置和凭据会一起删除，已打开的会话不受影响。"
         onOpenChange={(open) => {
           if (!open) setWorkspaceDeleteHosts([]);
         }}
+        onConfirm={() => void deleteWorkspaceHost()}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {workspaceDeleteHosts.length > 1
-                ? `删除选中的 ${workspaceDeleteHosts.length} 台主机？`
-                : `删除主机“${workspaceDeleteHosts[0]?.name}”？`}
-            </DialogTitle>
-            <DialogDescription>
-              本地主机配置及保存的凭据将被删除。已打开的会话不受影响。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setWorkspaceDeleteHosts([])}
-            >
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => void deleteWorkspaceHost()}
-            >
-              确认删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {workspaceDeleteHosts.length > 1 ? (
+          <>
+            确定要删除选中的 <strong>{workspaceDeleteHosts.length}</strong> 台主机吗？
+          </>
+        ) : (
+          <>
+            确定要删除主机 “<strong>{workspaceDeleteHosts[0]?.name}</strong>” 吗？
+          </>
+        )}
+      </DeleteConfirmDialog>
       <BatchImportDialog
         open={workspaceBatchImportOpen}
         onOpenChange={setWorkspaceBatchImportOpen}

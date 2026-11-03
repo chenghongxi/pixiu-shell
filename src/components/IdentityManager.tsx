@@ -21,6 +21,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { command, errorMessage, type SshIdentity } from "@/lib/api";
 import { Choice } from "./Choice";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,17 +46,6 @@ const emptyGenerate: GenerateDraft = { name: "", path: "", algorithm: "ed25519",
 function publicKeyLine(content: string) {
   const parts = content.trim().split(/\s+/);
   return parts.length >= 2 ? `${parts[0]} ${parts[1]}` : content.trim();
-}
-
-function InfoFilledIcon() {
-  return (
-    <svg className="delete-confirm-dialog__icon" viewBox="0 0 1024 1024" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M512 64a448 448 0 1 1 0 896.064A448 448 0 0 1 512 64m67.2 275.072c33.28 0 60.288-23.104 60.288-57.344s-27.072-57.344-60.288-57.344c-33.28 0-60.16 23.104-60.16 57.344s26.88 57.344 60.16 57.344M590.912 699.2c0-6.848 2.368-24.64 1.024-34.752l-52.608 60.544c-10.88 11.456-24.512 19.392-30.912 17.28a12.99 12.99 0 0 1-8.256-14.72l87.68-276.992c7.168-35.136-12.544-67.2-54.336-71.296-44.096 0-108.992 44.736-148.48 101.504 0 6.784-1.28 23.68.064 33.792l52.544-60.608c10.88-11.328 23.552-19.328 29.952-17.152a12.8 12.8 0 0 1 7.808 16.128L388.48 728.576c-10.048 32.256 8.96 63.872 55.04 71.04 67.84 0 107.904-43.648 147.456-100.416z"
-      />
-    </svg>
-  );
 }
 
 export function IdentityManager() {
@@ -617,35 +607,18 @@ export function IdentityManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={!!remove} onOpenChange={(open) => { if (!open && !busy) setRemove(null); }}>
-        <DialogContent className="identity-dialog delete-confirm-dialog">
-          <DialogHeader>
-            <DialogTitle>删除确认</DialogTitle>
-            <DialogDescription className="sr-only">
-              确定要删除 SSH 密钥“{remove?.name}”吗？不会删除磁盘上的私钥文件。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="delete-confirm-dialog__body">
-            <InfoFilledIcon />
-            <div className="delete-confirm-dialog__text">
-              <p className="delete-confirm-dialog__main">
-                确定要删除 SSH 密钥 “<strong>{remove?.name}</strong>” 吗？
-              </p>
-              <p className="delete-confirm-dialog__hint">
-                不会删除磁盘上的私钥文件。已使用此密钥的主机仍会保留路径。
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={busy} onClick={() => setRemove(null)}>
-              取消
-            </Button>
-            <Button disabled={busy} onClick={() => void removeIdentity()}>
-              {busy ? "删除中…" : "删除"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={!!remove}
+        label={`确定要删除 SSH 密钥“${remove?.name}”吗？`}
+        hint="不会删除磁盘上的私钥文件。已使用此密钥的主机仍会保留路径。"
+        loading={busy}
+        onOpenChange={(open) => {
+          if (!open) setRemove(null);
+        }}
+        onConfirm={() => void removeIdentity()}
+      >
+        确定要删除 SSH 密钥 “<strong>{remove?.name}</strong>” 吗？
+      </DeleteConfirmDialog>
     </div>
   );
 }
