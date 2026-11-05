@@ -854,9 +854,7 @@ export default function App() {
         password: null,
         proxyPassword: null,
       });
-      toast.success(`${host.address} SSH 连通正常`, {
-        className: "connectivity-toast",
-      });
+      toast.success(`${host.address} SSH 连通正常`);
     } catch (error) {
       toast.error(`${host.name}：${errorMessage(error)}`);
     } finally {
@@ -3072,7 +3070,12 @@ export default function App() {
             }}
           />
         ) : null}
-        <Toaster theme={resolvedTheme} position="top-center" />
+        <Toaster
+          theme={resolvedTheme}
+          position="top-right"
+          closeButton
+          offset={{ top: 76, right: 16 }}
+        />
       </div>
       <Dialog
         open={folderCreateParent !== undefined}
