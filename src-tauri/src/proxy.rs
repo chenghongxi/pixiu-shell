@@ -3,15 +3,34 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
-    net::{Shutdown, TcpStream, ToSocketAddrs},
-    sync::mpsc,
-    time::Duration,
+    net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs},
+    sync::{atomic::{AtomicUsize, Ordering}, mpsc},
+    time::{Duration, Instant},
 };
 use uuid::Uuid;
 
 /// Upper bound for one dial attempt: long enough for a slow WAN link, short
 /// enough that a dead address never freezes the whole connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_PENDING_RESOLUTIONS: usize = 8;
+static PENDING_RESOLUTIONS: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Clone, Copy)]
+pub(crate) struct ConnectionTimeouts {
+    pub resolve: Option<Duration>,
+    pub connect: Duration,
+    pub io: Duration,
+}
+
+impl Default for ConnectionTimeouts {
+    fn default() -> Self {
+        Self {
+            resolve: None,
+            connect: CONNECT_TIMEOUT,
+            io: Duration::from_secs(30),
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Proxy {
@@ -89,14 +108,25 @@ pub(crate) fn connect_with_password(
     id: Option<Uuid>,
     supplied_password: Option<&str>,
 ) -> Result<TcpStream> {
+    connect_with_timeouts(host, port, proxy, id, supplied_password, ConnectionTimeouts::default())
+}
+
+pub(crate) fn connect_with_timeouts(
+    host: &str,
+    port: u16,
+    proxy: Option<&Proxy>,
+    id: Option<Uuid>,
+    supplied_password: Option<&str>,
+    timeouts: ConnectionTimeouts,
+) -> Result<TcpStream> {
     let (address, endpoint_port) = proxy
         .map(|p| (p.address.as_str(), p.port))
         .unwrap_or((host, port));
-    let mut socket = dial(address, endpoint_port)?;
+    let mut socket = dial(address, endpoint_port, timeouts)?;
     // Interactive SSH sends single keystrokes; Nagle would delay each of them.
     socket.set_nodelay(true)?;
-    socket.set_read_timeout(Some(Duration::from_secs(30)))?;
-    socket.set_write_timeout(Some(Duration::from_secs(30)))?;
+    socket.set_read_timeout(Some(timeouts.io))?;
+    socket.set_write_timeout(Some(timeouts.io))?;
     if let Some(proxy) = proxy {
         proxy.validate()?;
         if let Some(secret) = supplied_password {
@@ -127,39 +157,86 @@ pub(crate) fn connect_with_password(
 /// Dials every resolved address at once and keeps the first one that answers.
 /// Dialing in order makes a host with an unreachable AAAA record — IPv6 is
 /// resolved first — block for a full timeout before IPv4 is even attempted.
-fn dial(host: &str, port: u16) -> Result<TcpStream> {
-    let addresses: Vec<_> = (host, port)
-        .to_socket_addrs()
-        .with_context(|| format!("无法解析地址 {host}:{port}"))?
-        .collect();
+fn resolve(host: &str, port: u16, timeout: Option<Duration>) -> Result<Vec<SocketAddr>> {
+    let lookup = move |host: &str| -> Result<Vec<SocketAddr>> {
+        Ok((host, port)
+            .to_socket_addrs()
+            .with_context(|| format!("无法解析地址 {host}，请检查主机名或 DNS"))?
+            .collect())
+    };
+    let Some(timeout) = timeout else {
+        return lookup(host);
+    };
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return lookup(host);
+    }
+    PENDING_RESOLUTIONS
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+            (count < MAX_PENDING_RESOLUTIONS).then_some(count + 1)
+        })
+        .map_err(|_| anyhow::anyhow!("DNS 解析任务过多，请稍后重试"))?;
+    let host = host.to_owned();
+    let name = host.clone();
+    let (sender, receiver) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        struct ResolutionGuard;
+        impl Drop for ResolutionGuard {
+            fn drop(&mut self) {
+                PENDING_RESOLUTIONS.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let _guard = ResolutionGuard;
+        let _ = sender.send(lookup(&host));
+    });
+    receiver
+        .recv_timeout(timeout)
+        .map_err(|_| anyhow::anyhow!("解析地址 {name} 超时，请检查主机名或 DNS，或使用 IP 地址"))?
+}
+
+fn connection_error(host: &str, port: u16, error: std::io::Error) -> anyhow::Error {
+    let message = match error.kind() {
+        std::io::ErrorKind::TimedOut => format!("连接 {host}:{port} 超时，请检查网络或防火墙"),
+        std::io::ErrorKind::ConnectionRefused => {
+            format!("连接 {host}:{port} 被拒绝，请检查端口和 SSH 服务")
+        }
+        _ => format!("无法连接 {host}:{port}，请检查地址、端口及网络"),
+    };
+    anyhow::Error::new(error).context(message)
+}
+
+fn dial(host: &str, port: u16, timeouts: ConnectionTimeouts) -> Result<TcpStream> {
+    let addresses = resolve(host, port, timeouts.resolve)?;
     let Some(first) = addresses.first().copied() else {
         bail!("地址 {host}:{port} 没有解析结果");
     };
     if addresses.len() == 1 {
-        return TcpStream::connect_timeout(&first, CONNECT_TIMEOUT)
-            .with_context(|| format!("无法连接 {host}:{port}"));
+        return TcpStream::connect_timeout(&first, timeouts.connect)
+            .map_err(|error| connection_error(host, port, error));
     }
     let (sender, receiver) = mpsc::channel();
+    let deadline = Instant::now() + timeouts.connect;
     for address in addresses {
         let sender = sender.clone();
         std::thread::spawn(move || {
-            let _ = sender.send(TcpStream::connect_timeout(&address, CONNECT_TIMEOUT));
+            let _ = sender.send(TcpStream::connect_timeout(&address, timeouts.connect));
         });
     }
     drop(sender);
     let mut failure = None;
     // Losers report errors immediately, so keep waiting for a winner until
     // every attempt has answered or the shared timeout elapses.
-    while let Ok(attempt) = receiver.recv_timeout(CONNECT_TIMEOUT) {
-        match attempt {
-            Ok(socket) => return Ok(socket),
-            Err(error) => failure = Some(error),
+    loop {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Ok(socket)) => return Ok(socket),
+            Ok(Err(error)) => failure = Some(error),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                bail!("连接 {host}:{port} 超时，请检查网络或防火墙")
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     match failure {
-        Some(error) => {
-            Err(anyhow::Error::new(error)).with_context(|| format!("无法连接 {host}:{port}"))
-        }
+        Some(error) => Err(connection_error(host, port, error)),
         None => bail!("连接 {host}:{port} 超时"),
     }
 }
@@ -269,6 +346,42 @@ pub(crate) fn helper() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn connectivity_resolution_handles_numeric_addresses() -> Result<()> {
+        let addresses = resolve("127.0.0.1", 2222, Some(Duration::from_secs(1)))?;
+        assert_eq!(addresses, vec!["127.0.0.1:2222".parse()?]);
+        Ok(())
+    }
+
+    #[test]
+    fn connectivity_reports_closed_port() -> Result<()> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        drop(listener);
+        let error = dial(
+            "127.0.0.1",
+            port,
+            ConnectionTimeouts {
+                resolve: Some(Duration::from_secs(1)),
+                connect: Duration::from_secs(1),
+                io: Duration::from_secs(1),
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("被拒绝"));
+        Ok(())
+    }
+
+    #[test]
+    fn connectivity_reports_timeout_separately() {
+        let error = connection_error(
+            "192.0.2.1",
+            22,
+            std::io::Error::from(std::io::ErrorKind::TimedOut),
+        );
+        assert!(error.to_string().contains("超时"));
+    }
+
     #[test]
     fn socks5_negotiates_remote_dns_and_preserves_payload() -> Result<()> {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;

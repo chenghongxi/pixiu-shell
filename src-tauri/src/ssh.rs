@@ -214,19 +214,38 @@ pub(crate) fn connect_session(
     proxy_password: Option<&str>,
     stage: Option<&dyn Fn(&str)>,
 ) -> Result<Session> {
+    connect_session_with_timeouts(
+        host,
+        known_hosts,
+        supplied_password,
+        proxy_password,
+        stage,
+        crate::proxy::ConnectionTimeouts::default(),
+    )
+}
+
+pub(crate) fn connect_session_with_timeouts(
+    host: &LocalHost,
+    known_hosts: &Path,
+    supplied_password: Option<&str>,
+    proxy_password: Option<&str>,
+    stage: Option<&dyn Fn(&str)>,
+    timeouts: crate::proxy::ConnectionTimeouts,
+) -> Result<Session> {
     host.validate()?;
     report(stage, &format!("正在连接 {}:{}", host.address, host.port));
-    let socket = crate::proxy::connect_with_password(
+    let socket = crate::proxy::connect_with_timeouts(
         &host.address,
         host.port,
         host.proxy.as_ref(),
         host.id,
         proxy_password,
+        timeouts,
     )?;
-    socket.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
-    socket.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
+    socket.set_read_timeout(Some(timeouts.io))?;
+    socket.set_write_timeout(Some(timeouts.io))?;
     let mut session = Session::new()?;
-    session.set_timeout(30000);
+    session.set_timeout(timeouts.io.as_millis().min(u32::MAX as u128) as u32);
     // Preferences must be set before the handshake starts negotiating.
     for (method, algorithms) in [
         (MethodType::Kex, PREFERRED_KEX),

@@ -244,9 +244,9 @@ export default function App() {
   const [workspaceSelectedHosts, setWorkspaceSelectedHosts] = useState<
     string[]
   >([]);
-  const [workspaceCheckingHost, setWorkspaceCheckingHost] = useState<
-    string | null
-  >(null);
+  const [workspaceCheckingHosts, setWorkspaceCheckingHosts] = useState<
+    Set<string>
+  >(() => new Set());
   const [workspaceEditingHost, setWorkspaceEditingHost] =
     useState<LocalHost | null>(null);
   const [inlineEditingHostId, setInlineEditingHostId] = useState<string | null>(
@@ -847,7 +847,12 @@ export default function App() {
     setView("settings");
   }
   async function testWorkspaceHost(host: LocalHost) {
-    setWorkspaceCheckingHost(host.id);
+    if (!host.id) {
+      toast.error("无法检测未保存的主机");
+      return;
+    }
+    const hostId = host.id;
+    setWorkspaceCheckingHosts((current) => new Set(current).add(hostId));
     try {
       await command<{ message: string }>("local_connectivity_test", {
         host: { ...host, proxy: host.proxy ?? null },
@@ -856,9 +861,13 @@ export default function App() {
       });
       toast.success(`${host.address} SSH 连通正常`);
     } catch (error) {
-      toast.error(`${host.name}：${errorMessage(error)}`);
+      toast.error(`${host.name}（${host.address}:${host.port}）：${errorMessage(error)}`);
     } finally {
-      setWorkspaceCheckingHost(null);
+      setWorkspaceCheckingHosts((current) => {
+        const next = new Set(current);
+        next.delete(hostId);
+        return next;
+      });
     }
   }
   async function deleteWorkspaceHost() {
@@ -2405,17 +2414,25 @@ export default function App() {
                                     <div className="workspace-host-table__actions">
                                       <button
                                         type="button"
-                                        className="host-link"
+                                        className="host-link workspace-host-table__test"
                                         disabled={
-                                          workspaceCheckingHost === host.id
+                                          workspaceCheckingHosts.has(host.id)
                                         }
                                         onClick={() =>
                                           void testWorkspaceHost(host.local!)
                                         }
                                       >
-                                        {workspaceCheckingHost === host.id
-                                          ? "检测中…"
-                                          : "检测连通性"}
+                                        {workspaceCheckingHosts.has(host.id) ? (
+                                          <>
+                                            <LoaderCircle
+                                              className="animate-spin"
+                                              aria-hidden="true"
+                                            />
+                                            检测中
+                                          </>
+                                        ) : (
+                                          "检测连通性"
+                                        )}
                                       </button>
                                       <button
                                         type="button"

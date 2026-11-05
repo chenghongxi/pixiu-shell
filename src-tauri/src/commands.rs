@@ -1478,6 +1478,21 @@ pub(crate) async fn file_close(target: Target) -> CommandResult<()> {
     Ok(())
 }
 
+fn report_connectivity_result<T>(
+    sender: tokio::sync::oneshot::Sender<Result<()>>,
+    result: Result<T>,
+) {
+    match result {
+        Ok(connection) => {
+            let _ = sender.send(Ok(()));
+            drop(connection);
+        }
+        Err(error) => {
+            let _ = sender.send(Err(error));
+        }
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn local_connectivity_test(
     state: State<'_, AppState>,
@@ -1486,23 +1501,29 @@ pub(crate) async fn local_connectivity_test(
     proxy_password: Option<String>,
 ) -> CommandResult<Value> {
     let known = state.known_hosts.to_path_buf();
-    tokio::task::spawn_blocking(move || -> Result<Value> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    tokio::task::spawn_blocking(move || {
         if host.name.trim().is_empty() {
             host.name = "连接检测".into();
         }
         let password = password.map(zeroize::Zeroizing::new);
         let proxy_password = proxy_password.map(zeroize::Zeroizing::new);
-        let _sftp = files::connect_with_credentials(
+        let result = crate::ssh::connect_session_with_timeouts(
             &host,
             &known,
             password.as_deref().map(String::as_str),
             proxy_password.as_deref().map(String::as_str),
-        )?;
-        Ok(json!({"status":"success","message":"SSH / SFTP 连通正常"}))
-    })
-    .await
-    .map_err(error)?
-    .map_err(error)
+            None,
+            crate::proxy::ConnectionTimeouts {
+                resolve: Some(std::time::Duration::from_secs(2)),
+                connect: std::time::Duration::from_secs(2),
+                io: std::time::Duration::from_secs(8),
+            },
+        );
+        report_connectivity_result(sender, result);
+    });
+    receiver.await.map_err(error)?.map_err(error)?;
+    Ok(json!({"status":"success","message":"SSH 连通正常"}))
 }
 
 #[tauri::command]
@@ -1554,6 +1575,44 @@ pub(crate) async fn platform_restore(state: State<'_, AppState>) -> CommandResul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connectivity_result_is_sent_before_connection_cleanup() {
+        struct Connection {
+            receiver: tokio::sync::oneshot::Receiver<Result<()>>,
+            reported: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+
+        impl Drop for Connection {
+            fn drop(&mut self) {
+                self.reported.store(
+                    matches!(self.receiver.try_recv(), Ok(Ok(()))),
+                    std::sync::atomic::Ordering::SeqCst,
+                );
+            }
+        }
+
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let reported = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        report_connectivity_result(
+            sender,
+            Ok(Connection {
+                receiver,
+                reported: reported.clone(),
+            }),
+        );
+        assert!(reported.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn connectivity_failure_is_reported() {
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
+        report_connectivity_result::<()>(sender, Err(anyhow::anyhow!("认证失败")));
+        assert_eq!(
+            receiver.try_recv().unwrap().unwrap_err().to_string(),
+            "认证失败"
+        );
+    }
 
     #[test]
     fn parses_yaml_batch_import_records() -> Result<()> {

@@ -974,6 +974,14 @@
 .workspace-host-table__actions .host-link:disabled {
   color: #2e437f;
 }
+.workspace-host-table__actions .workspace-host-table__test {
+  width: 68px;
+  gap: 4px;
+}
+.workspace-host-table__test svg {
+  width: 12px;
+  height: 12px;
+}
 .workspace-host-more__trigger {
   gap: 2px;
 }
