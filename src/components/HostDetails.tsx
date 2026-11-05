@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Copy,
   Network,
   RefreshCw,
   Search,
 } from "lucide-react";
-import { toast } from "sonner";
 import {
   resource,
   errorMessage,
@@ -16,6 +14,7 @@ import {
   type PlatformHostDetail,
 } from "@/lib/api";
 import { Button } from "./ui/button";
+import { CopyButton } from "./ui/copy-button";
 import { SearchInput } from "./ui/input";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
@@ -81,14 +80,6 @@ export function HostDetails({ host }: { host: Host }) {
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("IP 已复制");
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
-  }
   return (
     <div className="host-detail-extra">
       <section className="host-system-info" aria-label="主机基础信息">
@@ -185,16 +176,11 @@ export function HostDetails({ host }: { host: Host }) {
                 }}
               />
             </label>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="复制筛选 IP"
-              title={`复制筛选结果（${filtered.length} 个 IP）`}
+            <CopyButton
+              label={`复制筛选结果（${filtered.length} 个 IP）`}
               disabled={loading || !filtered.length}
-              onClick={() => void copy(filtered.map((ip) => ip.ip).join("\n"))}
-            >
-              <Copy />
-            </Button>
+              value={filtered.map((ip) => ip.ip).join("\n")}
+            />
           </div>
           {errors.ips ? (
             <p role="alert" className="host-detail-error">
@@ -240,15 +226,7 @@ export function HostDetails({ host }: { host: Host }) {
                     <td>{ip.networkCidr || "—"}</td>
                     <td>{ip.interfaceName || "—"}</td>
                     <td>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`复制地址 ${ip.ip}`}
-                        title="复制 IP"
-                        onClick={() => void copy(ip.ip)}
-                      >
-                        <Copy />
-                      </Button>
+                      <CopyButton label={`复制 IP ${ip.ip}`} value={ip.ip} />
                     </td>
                   </tr>
                 ))}

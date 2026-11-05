@@ -7,7 +7,7 @@ import {
 } from "react";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
-import { errorMessage } from "@/lib/api";
+import { CopyButton } from "@/components/ui/copy-button";
 
 type DiffRow = {
   type: "same" | "add" | "del";
@@ -193,19 +193,6 @@ export function FileCodeEditor({
     });
   }
 
-  async function copyAll() {
-    if (!value) {
-      toast.warning("暂无内容");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success("已复制");
-    } catch (error) {
-      toast.error(errorMessage(error));
-    }
-  }
-
   function download() {
     if (!value) {
       toast.warning("暂无内容");
@@ -260,9 +247,11 @@ export function FileCodeEditor({
             {compare ? "返回编辑" : "对比"}
           </button>
         ) : null}
-        <button type="button" className="host-link" onClick={() => void copyAll()}>
-          复制
-        </button>
+        <CopyButton
+          label="复制文件内容"
+          value={value}
+          onEmpty={() => toast.warning("暂无内容")}
+        />
         <button type="button" className="host-link" onClick={() => void toggleFull()}>
           {full ? "退出全屏" : "全屏"}
         </button>

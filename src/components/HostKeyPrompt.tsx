@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, Copy, ShieldAlert } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import { Button } from "./ui/button";
+import { CopyButton } from "./ui/copy-button";
 import {
   Dialog,
   DialogContent,
@@ -59,14 +60,10 @@ function FingerprintFact({
   label,
   value,
   muted = false,
-  copied,
-  onCopy,
 }: {
   label: string;
   value: string;
   muted?: boolean;
-  copied: boolean;
-  onCopy: () => void;
 }) {
   const [algo, body] = splitFingerprint(value);
   return (
@@ -75,16 +72,7 @@ function FingerprintFact({
       <code className="host-key-fact__value">
         {algo ? <span className="host-key-fact__algo">{algo}</span> : null}
         {body}
-        <button
-          type="button"
-          className="host-key-copy"
-          data-copied={copied}
-          aria-label={copied ? "已复制" : "复制指纹"}
-          title={copied ? "已复制" : "复制指纹"}
-          onClick={onCopy}
-        >
-          {copied ? <Check /> : <Copy />}
-        </button>
+        <CopyButton className="host-key-copy" label={`复制${label}`} value={value} />
       </code>
     </div>
   );
@@ -96,7 +84,6 @@ function FingerprintFact({
  */
 export function HostKeyPrompt() {
   const [requests, setRequests] = useState<HostKeyRequest[]>([]);
-  const [copied, setCopied] = useState<string | null>(null);
   useEffect(() => {
     if (!desktop) return;
     const listening = [
@@ -119,24 +106,11 @@ export function HostKeyPrompt() {
   const current = requests[0];
   async function settle(id: string, accept: boolean, remember: boolean) {
     setRequests((items) => items.filter((item) => item.id !== id));
-    setCopied(null);
     try {
       await answerHostKey(id, accept, remember);
     } catch {
       // 连接可能已经结束，没有人在等这个回答。
     }
-  }
-  async function copyFingerprint(key: string, value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      return;
-    }
-    setCopied(key);
-    window.setTimeout(
-      () => setCopied((item) => (item === key ? null : item)),
-      1600,
-    );
   }
   if (!current) return null;
   const view = PRESENTATION[current.kind];
@@ -186,18 +160,12 @@ export function HostKeyPrompt() {
                 <FingerprintFact
                   label={changed ? "服务器当前指纹" : "服务器指纹"}
                   value={current.fingerprint}
-                  copied={copied === "current"}
-                  onCopy={() =>
-                    void copyFingerprint("current", current.fingerprint)
-                  }
                 />
                 {stored ? (
                   <FingerprintFact
                     label="本机已记录的指纹"
                     value={stored}
                     muted
-                    copied={copied === "stored"}
-                    onCopy={() => void copyFingerprint("stored", stored)}
                   />
                 ) : null}
               </div>

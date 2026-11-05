@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ChevronLeft, ChevronRight, Copy, Ellipsis, FolderOpen, KeyRound, LockKeyhole, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, Ellipsis, FolderOpen, KeyRound, LockKeyhole, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -198,16 +199,6 @@ export function IdentityManager() {
     try {
       const key = await command<{ content: string }>("identity_public_key", { id: identity.id });
       setPublicKey({ name: identity.name, content: publicKeyLine(key.content) });
-    } catch (value) {
-      setError(errorMessage(value));
-    }
-  }
-
-  async function copyPublicKey() {
-    if (!publicKey) return;
-    try {
-      await navigator.clipboard.writeText(publicKey.content);
-      toast.success("公钥已复制");
     } catch (value) {
       setError(errorMessage(value));
     }
@@ -587,17 +578,12 @@ export function IdentityManager() {
           <div className="identity-public-key">
             <div className="identity-public-key__field">
               <Input readOnly value={publicKey?.content ?? ""} aria-label="SSH 公钥内容" />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
+              <CopyButton
                 className="identity-public-key__copy"
-                aria-label="复制公钥"
-                title="复制公钥"
-                onClick={() => void copyPublicKey()}
-              >
-                <Copy />
-              </Button>
+                label="复制公钥"
+                value={publicKey?.content ?? ""}
+                disabled={!publicKey}
+              />
             </div>
           </div>
           <DialogFooter>

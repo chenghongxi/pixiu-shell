@@ -2557,18 +2557,12 @@
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
 }
-.identity-public-key__copy[data-slot="button"] {
+.identity-public-key__copy.copy-button {
   position: absolute;
   z-index: 1;
   right: 4px;
   width: 28px;
   height: 28px;
-  background: #141414;
-  color: var(--muted-foreground);
-}
-.identity-public-key__copy[data-slot="button"]:hover {
-  background: #141414;
-  color: var(--foreground);
 }
 .identity-dialog[data-slot="dialog-content"] {
   width: min(520px, calc(100vw - 32px));
@@ -8378,6 +8372,51 @@ body .host-search-dialog > .host-search-results {
 .host-key-copy svg {
   width: 12px;
   height: 12px;
+}
+.copy-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.copy-button:hover {
+  border-color: var(--border);
+  background: var(--hover);
+  color: var(--foreground);
+}
+.copy-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.copy-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.copy-button[data-copied="true"],
+.host-key-copy[data-copied="true"] {
+  color: var(--green);
+}
+.copy-button > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.terminal-address.copy-button {
+  width: auto;
+  height: auto;
+  flex: initial;
+  justify-content: flex-start;
+}
+.terminal-address.copy-button[data-copied="true"] > svg {
+  opacity: 1;
 }
 /* 未解析的 OpenSSH 原文：保留换行，过长时在框内滚动 */
 .host-key-raw {

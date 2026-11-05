@@ -31,7 +31,6 @@ import {
   Unplug,
   X,
   GripVertical,
-  Copy,
   Search,
   ChevronUp,
   ChevronDown,
@@ -39,6 +38,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 
 import {
   cancelCommandApproval,
@@ -1323,21 +1323,13 @@ export function TerminalPane({
             </div>
           ) : null}
           {target.mode !== "shell" ? (
-            <button
-              type="button"
+            <CopyButton
               className="terminal-address"
-              aria-label={`复制 IP ${address}`}
-              title={`复制 IP：${address}`}
-              onClick={() =>
-                void navigator.clipboard
-                  .writeText(address)
-                  .then(() => toast.success("IP 已复制"))
-                  .catch((error) => toast.error(errorMessage(error)))
-              }
+              label={`复制 IP：${address}`}
+              value={address}
             >
               <span>{address}</span>
-              <Copy />
-            </button>
+            </CopyButton>
           ) : (
             <span className="terminal-address">本机</span>
           )}

@@ -1,8 +1,7 @@
 import { Fragment, useEffect, type ReactNode } from "react";
-import { Copy } from "lucide-react";
-import { toast } from "sonner";
-import { errorMessage, type Host, type Target, type Tunnel } from "@/lib/api";
+import { type Host, type Target, type Tunnel } from "@/lib/api";
 import { Button } from "./ui/button";
+import { CopyButton } from "./ui/copy-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { FileManager } from "./FileManager";
 import { HostEditor } from "./HostEditor";
@@ -42,31 +41,6 @@ function tunnelKind(tunnel: Tunnel) {
   if (tunnel.kind === "local") return "本地转发";
   if (tunnel.kind === "remote") return "远程转发";
   return "动态转发";
-}
-
-async function copyText(text: string, label: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.success(`${label}已复制`);
-  } catch (error) {
-    toast.error(errorMessage(error));
-  }
-}
-
-function CopyButton({ label, value }: { label: string; value: string }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      className="host-profile-copy"
-      aria-label={`复制${label}`}
-      title={`复制${label}`}
-      onClick={() => void copyText(value, label)}
-    >
-      <Copy />
-    </Button>
-  );
 }
 
 type InfoCell = {
@@ -123,7 +97,7 @@ function InfoTable({ cells }: { cells: InfoCell[] }) {
                     <>
                       <span title={cell.value}>{cell.value}</span>
                       {cell.copy ? (
-                        <CopyButton label={cell.label} value={cell.copy} />
+                        <CopyButton className="host-profile-copy" label={`复制${cell.label}`} value={cell.copy} />
                       ) : null}
                     </>
                   )}
@@ -212,17 +186,11 @@ export function HostProfile({
               <h2>{host.name}</h2>
               <div className="host-profile-conn">
                 <span>{conn}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
+                <CopyButton
                   className="host-profile-copy host-profile-copy--always"
-                  aria-label="复制连接串"
-                  title="复制连接串"
-                  onClick={() => void copyText(conn, "连接串")}
-                >
-                  <Copy />
-                </Button>
+                  label="复制连接串"
+                  value={conn}
+                />
               </div>
             </div>
           </div>

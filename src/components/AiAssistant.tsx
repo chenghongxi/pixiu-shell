@@ -6,7 +6,6 @@ import {
   Sparkles,
   Send,
   Square,
-  Copy,
   TerminalSquare,
   X,
   RefreshCw,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Choice } from "@/components/Choice";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -510,21 +510,7 @@ export function AiAssistant({
                         </Bubble>
                         {message.role === "assistant" && message.content ? (
                           <MessageFooter>
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              aria-label="复制 AI 回复"
-                              onClick={() =>
-                                void navigator.clipboard
-                                  .writeText(message.content)
-                                  .then(() => toast.success("已复制"))
-                                  .catch((error) =>
-                                    toast.error(errorMessage(error)),
-                                  )
-                              }
-                            >
-                              <Copy />
-                            </Button>
+                            <CopyButton label="复制 AI 回复" value={message.content} />
                             {mode !== "chat" &&
                             host &&
                             message.action !== "diagnose" &&
