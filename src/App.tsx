@@ -2154,6 +2154,7 @@ export default function App() {
                     <>
                       <HostProfile
                         host={selected}
+                        visible={hostProfileOpen}
                         editing={inlineEditingHostId === selected.id}
                         connecting={connecting}
                         onEdit={() => setInlineEditingHostId(selected.id)}

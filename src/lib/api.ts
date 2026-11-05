@@ -300,6 +300,15 @@ export interface FileItem {
   permissions?: string;
   modifiedAt?: string;
 }
+export interface ProcessMetrics {
+  pid: number;
+  user: string;
+  cpuPercent: number;
+  memoryPercent: number;
+  rssKb: number;
+  state: string;
+  command: string;
+}
 export interface HostMetrics {
   uptimeSecs: number;
   load1: number;
@@ -325,12 +334,13 @@ export interface HostMetrics {
   tcpCloseWait: number;
   tcpListen: number;
   tcpTotal: number;
+  processes: ProcessMetrics[] | null;
 }
-export function hostMetrics(hostId: string) {
-  return command<HostMetrics>("host_metrics_probe", { hostId });
+export function hostMetrics(hostId: string, monitorId: string) {
+  return command<HostMetrics>("host_metrics_probe", { hostId, monitorId });
 }
-export function stopHostMetrics(hostId: string) {
-  return command<void>("host_metrics_stop", { hostId });
+export function stopHostMetrics(hostId: string, monitorId: string) {
+  return command<void>("host_metrics_stop", { hostId, monitorId });
 }
 export function directOptions(
   options: HostOptions,

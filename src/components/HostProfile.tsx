@@ -5,9 +5,10 @@ import { CopyButton } from "./ui/copy-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { FileManager } from "./FileManager";
 import { HostEditor } from "./HostEditor";
+import { HostMonitor } from "./HostMonitor";
 
 export type HostProfileTab =
-  "overview" | "connection" | "auth" | "network" | "files";
+  "overview" | "connection" | "auth" | "network" | "files" | "monitor";
 
 const EMPTY = "-";
 
@@ -124,6 +125,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 export function HostProfile({
   host,
+  visible,
   editing,
   connecting,
   tab,
@@ -138,6 +140,7 @@ export function HostProfile({
   extra,
 }: {
   host: Host;
+  visible: boolean;
   editing: boolean;
   connecting: boolean;
   tab: HostProfileTab;
@@ -263,6 +266,7 @@ export function HostProfile({
             <TabsTrigger value="connection">连接</TabsTrigger>
             <TabsTrigger value="auth">认证</TabsTrigger>
             <TabsTrigger value="network">网络</TabsTrigger>
+            {host.mode === "local" ? <TabsTrigger value="monitor">监控</TabsTrigger> : null}
             <TabsTrigger
               value="files"
               onClick={() => {
@@ -451,6 +455,11 @@ export function HostProfile({
             )}
           </TabsContent>
 
+          {host.mode === "local" ? (
+            <TabsContent value="monitor" className="host-profile-panel host-profile-panel--monitor">
+              <HostMonitor key={host.id} host={host} visible={visible && tab === "monitor"} embedded />
+            </TabsContent>
+          ) : null}
           <TabsContent
             value="files"
             className="host-profile-panel host-profile-panel--files"

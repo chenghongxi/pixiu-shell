@@ -1,15 +1,24 @@
-import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown, Search, X } from "lucide-react";
 import { MetricChart } from "./MetricChart";
 import { MonitorIcon } from "./MonitorIcon";
 import { Button } from "./ui/button";
 import { Alert, AlertDescription } from "./ui/alert";
+import { SearchInput } from "./ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import {
   errorMessage,
   hostMetrics,
   stopHostMetrics,
   type Host,
   type HostMetrics,
+  type ProcessMetrics,
 } from "@/lib/api";
 
 const maxPoints = 60;
@@ -25,21 +34,25 @@ export function HostMonitor({
   host,
   visible,
   onClose,
+  embedded = false,
 }: {
   host: Host;
   visible: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }) {
   const [samples, setSamples] = useState<Sample[]>([]);
   const [error, setError] = useState("");
-  const timer = useRef(0);
-
   useEffect(() => {
     if (!visible) return;
+    const monitorId = crypto.randomUUID();
     let cancelled = false;
+    let inFlight = false;
+    let timer = 0;
     async function tick() {
+      inFlight = true;
       try {
-        const metrics = await hostMetrics(host.id);
+        const metrics = await hostMetrics(host.id, monitorId);
         if (cancelled) return;
         setSamples((current) =>
           [...current, { at: Date.now(), metrics }].slice(-maxPoints),
@@ -48,22 +61,21 @@ export function HostMonitor({
       } catch (cause) {
         if (!cancelled) setError(errorMessage(cause));
       } finally {
-        if (!cancelled) timer.current = window.setTimeout(tick, intervalMs);
+        inFlight = false;
+        if (cancelled) {
+          void stopHostMetrics(host.id, monitorId).catch(() => undefined);
+        } else {
+          timer = window.setTimeout(tick, intervalMs);
+        }
       }
     }
     void tick();
     return () => {
       cancelled = true;
-      window.clearTimeout(timer.current);
+      window.clearTimeout(timer);
+      if (!inFlight) void stopHostMetrics(host.id, monitorId).catch(() => undefined);
     };
   }, [visible, host.id]);
-
-  // The cached SSH session is only useful while the panel keeps polling.
-  useEffect(() => {
-    if (visible) return;
-    void stopHostMetrics(host.id).catch(() => undefined);
-  }, [visible, host.id]);
-  useEffect(() => () => void stopHostMetrics(host.id).catch(() => undefined), [host.id]);
 
   const latest = samples.at(-1)?.metrics;
   const labels = samples.map((sample) => clock(sample.at));
@@ -78,8 +90,8 @@ export function HostMonitor({
     metrics.diskWriteBytesPerSec,
   ]);
   return (
-    <section className="ai-panel monitor-panel" hidden={!visible}>
-      <header>
+    <section className={embedded ? "monitor-panel monitor-panel--embedded" : "ai-panel monitor-panel"} hidden={!visible}>
+      {!embedded && <header>
         <div>
           <MonitorIcon />
           <strong>主机监控</strong>
@@ -96,13 +108,19 @@ export function HostMonitor({
             <X />
           </Button>
         </div>
-      </header>
+      </header>}
+      <Tabs defaultValue="overview" className="monitor-tabs">
+        <TabsList variant="line" className="monitor-tabs__list" aria-label="监控分类">
+          <TabsTrigger value="overview">概览</TabsTrigger>
+          <TabsTrigger value="processes">进程</TabsTrigger>
+        </TabsList>
       <div className="monitor-body">
         {error ? (
           <Alert variant="destructive" className="monitor-alert">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
+        <TabsContent value="overview" className="monitor-overview">
         <div className="monitor-summary">
           <Metric
             label="运行时间"
@@ -233,7 +251,126 @@ export function HostMonitor({
             },
           ]}
         />
+        </TabsContent>
+        <TabsContent value="processes" className="monitor-processes">
+          <ProcessList processes={latest?.processes} loading={!latest && !error} />
+        </TabsContent>
       </div>
+      </Tabs>
+    </section>
+  );
+}
+
+function ProcessList({
+  processes,
+  loading,
+}: {
+  processes: ProcessMetrics[] | null | undefined;
+  loading: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"cpu" | "memory" | "pid">("cpu");
+  const keyword = query.trim().toLowerCase();
+  const filtered = (processes ?? [])
+    .filter((process) =>
+      [String(process.pid), process.user, process.command]
+        .some((value) => value.toLowerCase().includes(keyword)),
+    )
+    .sort((a, b) =>
+      sort === "memory"
+        ? b.rssKb - a.rssKb || a.pid - b.pid
+        : sort === "pid"
+          ? a.pid - b.pid
+          : b.cpuPercent - a.cpuPercent || a.pid - b.pid,
+    );
+
+  return (
+    <section className="monitor-process-list" aria-label="进程列表">
+      <div className="monitor-process-toolbar">
+        <label className="monitor-process-search">
+          <Search aria-hidden="true" />
+          <SearchInput
+            aria-label="搜索进程"
+            placeholder="搜索 PID、用户或命令"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="monitor-process-sort"
+              aria-label={`进程排序：${sort === "cpu" ? "CPU" : sort === "memory" ? "内存" : "PID"}`}
+            >
+              {sort === "cpu" ? "CPU 排序" : sort === "memory" ? "内存排序" : "PID 排序"}
+              <ChevronDown aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {([
+              ["cpu", "CPU 排序"],
+              ["memory", "内存排序"],
+              ["pid", "PID 排序"],
+            ] as const).map(([value, label]) => (
+              <DropdownMenuItem
+                key={value}
+                role="menuitemradio"
+                aria-checked={sort === value}
+                onSelect={() => setSort(value)}
+              >
+                {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="monitor-process-meta">
+        <span>{processes ? `进程 ${filtered.length} / ${processes.length}` : "进程"}</span>
+        <span>CPU 前 200 · CPU 为启动以来平均值</span>
+      </div>
+      {loading ? (
+        <p className="monitor-process-empty">正在采集进程数据…</p>
+      ) : !processes ? (
+        <p className="monitor-process-empty">进程数据暂不可用</p>
+      ) : filtered.length === 0 ? (
+        <p className="monitor-process-empty">{keyword ? "没有匹配的进程" : "暂无进程数据"}</p>
+      ) : (
+        <div className="monitor-process-table-wrap" role="region" aria-label="进程数据">
+          <table className="monitor-process-table">
+            <thead>
+              <tr>
+                <th>进程</th>
+                <th title="进程启动以来的平均 CPU 使用率">CPU</th>
+                <th>内存</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((process) => (
+                <tr key={process.pid}>
+                  <td>
+                    <div className="monitor-process-command" title={process.command}>
+                      {process.command || `[${process.pid}]`}
+                    </div>
+                    <div className="monitor-process-detail">
+                      <span>PID {process.pid}</span>
+                      <span title={process.user}>{process.user}</span>
+                      <span>{process.state}</span>
+                    </div>
+                  </td>
+                  <td className="monitor-process-number">{process.cpuPercent.toFixed(1)}%</td>
+                  <td className="monitor-process-number">
+                    <div>{size(process.rssKb)}</div>
+                    <small>{process.memoryPercent.toFixed(1)}%</small>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

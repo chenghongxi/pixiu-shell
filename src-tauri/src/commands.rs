@@ -1530,10 +1530,12 @@ pub(crate) async fn local_connectivity_test(
 pub(crate) async fn host_metrics_probe(
     state: State<'_, AppState>,
     host_id: Uuid,
+    monitor_id: Uuid,
 ) -> CommandResult<monitor::HostMetrics> {
     let database = state.database.to_path_buf();
     let known = state.known_hosts.to_path_buf();
-    let cached = state.monitor_sessions.lock().await.remove(&host_id);
+    let key = (host_id, monitor_id);
+    let cached = state.monitor_sessions.lock().await.remove(&key);
     let (metrics, session) = tokio::task::spawn_blocking(
         move || -> Result<(monitor::HostMetrics, ssh2::Session)> {
             let hosts = storage::list(&storage::open(&database)?)?;
@@ -1548,7 +1550,7 @@ pub(crate) async fn host_metrics_probe(
     .await
     .map_err(error)?
     .map_err(error)?;
-    state.monitor_sessions.lock().await.insert(host_id, session);
+    state.monitor_sessions.lock().await.insert(key, session);
     Ok(metrics)
 }
 
@@ -1556,8 +1558,9 @@ pub(crate) async fn host_metrics_probe(
 pub(crate) async fn host_metrics_stop(
     state: State<'_, AppState>,
     host_id: Uuid,
+    monitor_id: Uuid,
 ) -> CommandResult<()> {
-    state.monitor_sessions.lock().await.remove(&host_id);
+    state.monitor_sessions.lock().await.remove(&(host_id, monitor_id));
     Ok(())
 }
 

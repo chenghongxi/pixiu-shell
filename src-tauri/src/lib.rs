@@ -48,7 +48,7 @@ struct AppState {
     sessions: Arc<Sessions>,
     transfer_cancels: Mutex<std::collections::HashMap<Uuid, Arc<AtomicBool>>>,
     // Monitoring polls a host every few seconds, so it keeps the SSH session alive.
-    monitor_sessions: Mutex<std::collections::HashMap<Uuid, ssh2::Session>>,
+    monitor_sessions: Mutex<std::collections::HashMap<(Uuid, Uuid), ssh2::Session>>,
 }
 
 type CommandResult<T> = std::result::Result<T, String>;
