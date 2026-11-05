@@ -444,6 +444,13 @@ export interface HostKeyRequest {
 }
 export const HOST_KEY_PROMPT_EVENT = "host-key-verify";
 export const HOST_KEY_RESOLVED_EVENT = "host-key-resolved";
+export interface StoredHostKey {
+  keyType: string;
+  fingerprint: string;
+}
+export function storedHostKeys(address: string, port: number) {
+  return command<StoredHostKey[]>("host_key_stored", { address, port });
+}
 export function answerHostKey(id: string, accept: boolean, remember = true) {
   return command<void>("host_key_answer", { id, accept, remember });
 }

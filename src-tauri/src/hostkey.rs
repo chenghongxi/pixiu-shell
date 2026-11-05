@@ -19,7 +19,7 @@ use std::{
     sync::{LazyLock, Mutex, MutexGuard, OnceLock, mpsc},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 /// The window opens a prompt on the first event and drops it on the second. The
@@ -239,6 +239,26 @@ pub(crate) fn verify(
     }
 }
 
+pub(crate) fn verify_without_prompt(
+    session: &Session,
+    known_hosts: &Path,
+    address: &str,
+    port: u16,
+    key: &[u8],
+) -> Result<()> {
+    let mut known = session.known_hosts()?;
+    if known_hosts.exists() {
+        known.read_file(known_hosts, KnownHostFileKind::OpenSSH)?;
+    }
+    if matches!(known.check_port(address, port, key), CheckResult::Match)
+        || trusted_this_run(&hostname(address, port), &fingerprint(key))
+    {
+        Ok(())
+    } else {
+        Err(anyhow!("后台采集未能核验主机密钥"))
+    }
+}
+
 /// Blocks the connecting thread until the user answers or the request gives up.
 pub(crate) fn confirm(mut request: Request) -> Result<Answer> {
     let handle = GATEWAY
@@ -311,6 +331,67 @@ fn fingerprint(key: &[u8]) -> String {
     format!("SHA256:{}", STANDARD_NO_PAD.encode(hasher.finalize()))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoredHostKey {
+    key_type: String,
+    fingerprint: String,
+}
+
+fn find_stored_keys(content: &str, address: &str, port: u16) -> Result<Vec<StoredHostKey>> {
+    let session = Session::new()?;
+    let target = hostname(address, port);
+    let mut matches = Vec::new();
+    for line in content.lines() {
+        let mut fields = line.split_whitespace();
+        let Some(hosts) = fields.next() else { continue };
+        if hosts.starts_with('#') || hosts.starts_with('@') {
+            continue;
+        }
+        let (Some(key_type), Some(encoded)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let Ok(key) = STANDARD.decode(encoded) else { continue };
+        for host in hosts.split(',') {
+            let mut known = session.known_hosts()?;
+            if known
+                .read_str(&format!("{host} {key_type} {encoded}"), KnownHostFileKind::OpenSSH)
+                .is_err()
+            {
+                continue;
+            }
+            if matches!(known.check(&target, &key), CheckResult::Match) {
+                let fingerprint = fingerprint(&key);
+                if !matches.iter().any(|item: &StoredHostKey| item.fingerprint == fingerprint) {
+                    matches.push(StoredHostKey { key_type: key_type.to_string(), fingerprint });
+                }
+                break;
+            }
+        }
+    }
+    Ok(matches)
+}
+
+#[tauri::command]
+pub(crate) async fn host_key_stored(
+    state: State<'_, crate::AppState>,
+    address: String,
+    port: u16,
+) -> crate::CommandResult<Vec<StoredHostKey>> {
+    let path = state.known_hosts.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<Vec<StoredHostKey>> {
+        let content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error).context("无法读取已保存的主机密钥"),
+        };
+        find_stored_keys(&content, &address, port)
+    })
+    .await
+    .map_err(crate::error)?
+    .map_err(crate::error)
+}
+
 /// The key type name, so the prompt can say what kind of key it verified.
 fn key_type(value: HostKeyType) -> &'static str {
     match value {
@@ -362,4 +443,38 @@ fn forget(known_hosts: &Path, hostname: &str) -> Result<()> {
 #[tauri::command]
 pub(crate) fn host_key_answer(id: String, accept: bool, remember: bool) {
     answer(&id, accept, remember);
+}
+
+#[cfg(test)]
+mod stored_key_tests {
+    use super::*;
+
+    #[test]
+    fn matches_hosts_ports_and_multiple_keys() -> Result<()> {
+        let first = STANDARD.encode(b"first key");
+        let second = STANDARD.encode(b"second key");
+        let content = format!(
+            "example.com,192.0.2.1 ssh-rsa {first}\n[example.com]:2222 ssh-ed25519 {second}\n@revoked example.com ssh-rsa {second}\n"
+        );
+        let default_port = find_stored_keys(&content, "example.com", 22)?;
+        assert_eq!(default_port.len(), 1);
+        assert_eq!(default_port[0].fingerprint, fingerprint(b"first key"));
+        assert_eq!(find_stored_keys(&content, "192.0.2.1", 22)?.len(), 1);
+        let alternate = find_stored_keys(&content, "example.com", 2222)?;
+        assert_eq!(alternate.len(), 1);
+        assert_eq!(alternate[0].fingerprint, fingerprint(b"second key"));
+        assert!(find_stored_keys(&content, "example.com", 2223)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn matches_hashed_hostname() -> Result<()> {
+        let key = STANDARD.encode(b"hashed key");
+        let content = format!(
+            "|1|AQEBAQEBAQEBAQEBAQEBAQEBAQE=|AqgERpE7/atQuHzpEGc1XodOnYc= ssh-ed25519 {key}"
+        );
+        assert_eq!(find_stored_keys(&content, "example.com", 22)?.len(), 1);
+        assert!(find_stored_keys(&content, "example.com", 2222)?.is_empty());
+        Ok(())
+    }
 }

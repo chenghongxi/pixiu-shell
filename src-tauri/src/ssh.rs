@@ -232,6 +232,30 @@ pub(crate) fn connect_session_with_timeouts(
     stage: Option<&dyn Fn(&str)>,
     timeouts: crate::proxy::ConnectionTimeouts,
 ) -> Result<Session> {
+    connect_session_inner(host, known_hosts, supplied_password, proxy_password, stage, timeouts, true)
+}
+
+pub(crate) fn connect_session_silent(
+    host: &LocalHost,
+    known_hosts: &Path,
+) -> Result<Session> {
+    let timeout = std::time::Duration::from_secs(5);
+    connect_session_inner(
+        host, known_hosts, None, None, None,
+        crate::proxy::ConnectionTimeouts { resolve: Some(timeout), connect: timeout, io: timeout },
+        false,
+    )
+}
+
+fn connect_session_inner(
+    host: &LocalHost,
+    known_hosts: &Path,
+    supplied_password: Option<&str>,
+    proxy_password: Option<&str>,
+    stage: Option<&dyn Fn(&str)>,
+    timeouts: crate::proxy::ConnectionTimeouts,
+    allow_prompt: bool,
+) -> Result<Session> {
     host.validate()?;
     report(stage, &format!("正在连接 {}:{}", host.address, host.port));
     let socket = crate::proxy::connect_with_timeouts(
@@ -262,15 +286,11 @@ pub(crate) fn connect_session_with_timeouts(
     session.handshake().context("SSH 握手失败")?;
     let (key, raw_key_type) = session.host_key().context("服务器没有主机公钥")?;
     report(stage, "正在校验主机指纹");
-    hostkey::verify(
-        &session,
-        known_hosts,
-        &host.address,
-        host.port,
-        key,
-        raw_key_type,
-    )
-    .context("无法核验主机指纹")?;
+    if allow_prompt {
+        hostkey::verify(&session, known_hosts, &host.address, host.port, key, raw_key_type)
+    } else {
+        hostkey::verify_without_prompt(&session, known_hosts, &host.address, host.port, key)
+    }.context("无法核验主机指纹")?;
     let stored_password = if host.has_password && supplied_password.is_none() {
         crate::credentials::read(host.id.context("主机缺少 ID")?)?
     } else {

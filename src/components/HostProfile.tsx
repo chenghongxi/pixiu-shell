@@ -1,5 +1,5 @@
-import { Fragment, useEffect, type ReactNode } from "react";
-import { type Host, type Target, type Tunnel } from "@/lib/api";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { command, desktop, storedHostKeys, type Host, type StoredHostKey, type Target, type Tunnel } from "@/lib/api";
 import { Button } from "./ui/button";
 import { CopyButton } from "./ui/copy-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
@@ -164,10 +164,71 @@ export function HostProfile({
   const tunnels = host.local?.tunnels ?? [];
   const proxyText = proxyLabel(host) || "直连";
   const sourceText = host.mode === "local" ? "本地主机" : "平台主机";
-  const hostKey =
-    host.mode === "local"
-      ? "尚未核验，首次 SSH 连接时确认"
-      : "连接权限和操作审计由平台管理";
+  const [osResult, setOsResult] = useState<{ target: string; os: string | null }>();
+  const osTarget = JSON.stringify([host.id, host.address, host.port, host.local?.username]);
+  useEffect(() => {
+    if (!visible || host.mode !== "local" || !desktop || (tab !== "overview" && tab !== "connection")) return;
+    let cancelled = false;
+    let timer = 0;
+    async function refreshOs() {
+      try {
+        const os = await command<string | null>("host_os_get", { id: host.id });
+        if (!cancelled) setOsResult({ target: osTarget, os });
+      } catch {
+        if (!cancelled) setOsResult({ target: osTarget, os: null });
+      } finally {
+        if (!cancelled) timer = window.setTimeout(refreshOs, 3000);
+      }
+    }
+    void refreshOs();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [visible, tab, host.mode, host.id, osTarget]);
+  const osType = host.mode === "local"
+    ? (osResult?.target === osTarget ? osResult.os : null)
+    : host.osType;
+  const [keyResult, setKeyResult] = useState<{
+    target: string;
+    keys?: StoredHostKey[];
+    error?: boolean;
+  }>();
+  const keyTarget = JSON.stringify([host.address, host.port]);
+
+  useEffect(() => {
+    if (!visible || tab !== "overview" || host.mode !== "local" || !desktop) return;
+    let cancelled = false;
+    let timer = 0;
+    async function refreshKeys() {
+      try {
+        const keys = await storedHostKeys(host.address, host.port);
+        if (!cancelled) setKeyResult({ target: keyTarget, keys });
+      } catch {
+        if (!cancelled) setKeyResult({ target: keyTarget, error: true });
+      } finally {
+        if (!cancelled) timer = window.setTimeout(refreshKeys, 3000);
+      }
+    }
+    void refreshKeys();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [visible, tab, host.mode, host.address, host.port, keyTarget]);
+
+  const currentKeys = keyResult?.target === keyTarget ? keyResult : undefined;
+  const hostKey = host.mode !== "local"
+    ? "连接权限和操作审计由平台管理"
+    : !desktop
+      ? "请在桌面应用中查看"
+      : currentKeys?.error
+        ? "无法读取已保存的主机密钥"
+        : !currentKeys
+          ? "正在读取"
+          : currentKeys.keys?.length
+            ? undefined
+            : "未保存主机密钥";
 
   function changeTab(value: string) {
     const next = value as HostProfileTab;
@@ -292,8 +353,8 @@ export function HostProfile({
                 { label: "用户名", value: username },
                 {
                   label: "操作系统",
-                  value: host.osType || EMPTY,
-                  empty: !host.osType,
+                  value: osType || EMPTY,
+                  empty: !osType,
                 },
                 {
                   label: "连接串",
@@ -301,7 +362,20 @@ export function HostProfile({
                   copy: conn,
                   mono: true,
                 },
-                { label: "主机密钥", value: hostKey },
+                {
+                  label: "主机密钥",
+                  value: hostKey,
+                  content: currentKeys?.keys?.length && host.mode === "local" ? (
+                    <div>
+                      {currentKeys.keys.map((key) => (
+                        <div key={`${key.keyType}:${key.fingerprint}`}>
+                          <span>{key.keyType} {key.fingerprint}</span>
+                          <CopyButton className="host-profile-copy" label="复制主机密钥指纹" value={key.fingerprint} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : undefined,
+                },
                 {
                   label: "标签",
                   empty: !host.tags.length,
@@ -347,8 +421,8 @@ export function HostProfile({
                 { label: "端口", value: String(host.port), mono: true },
                 {
                   label: "操作系统",
-                  value: host.osType || EMPTY,
-                  empty: !host.osType,
+                  value: osType || EMPTY,
+                  empty: !osType,
                 },
                 { label: "连接串", value: conn, copy: conn, mono: true },
               ]}

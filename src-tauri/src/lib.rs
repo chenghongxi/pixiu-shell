@@ -8,6 +8,7 @@ mod credentials;
 mod dingtalk;
 mod files;
 mod hostkey;
+mod host_os;
 mod identity;
 mod migrate;
 mod monitor;
@@ -328,13 +329,19 @@ async fn terminal_open(
                 let system_engine = preferences::load(&connection)?.system_engine();
                 sessions.open_local(
                     session_id,
-                    host,
+                    host.clone(),
                     &known_hosts,
                     system_engine,
                     channel,
                     cols,
                     rows,
-                )
+                )?;
+                if !system_engine {
+                    std::thread::spawn(move || {
+                        let _ = host_os::collect(&host, &known_hosts, &database);
+                    });
+                }
+                Ok(())
             })
             .await
             .map_err(error)?
@@ -563,7 +570,9 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 terminal_input,
                 rdp_input,
                 terminal_close,
-                hostkey::host_key_answer
+                hostkey::host_key_answer,
+                hostkey::host_key_stored,
+                host_os::host_os_get
             ];
             handler(invoke)
         })
