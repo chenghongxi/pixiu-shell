@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import {
   ArrowUp,
@@ -139,9 +139,12 @@ export function FileManager({
     total: number;
   } | null>(null);
   const generation = useRef(0);
-  const load = useCallback(async () => {
+  const fileItemsRef = useRef<HTMLDivElement>(null);
+  const pendingScroll = useRef<{ generation: number; top: number } | null>(null);
+  const load = useCallback(async (restoreScrollTop?: number) => {
     if (!path) return;
     const current = ++generation.current;
+    pendingScroll.current = null;
     setLoading(true);
     setError("");
     setFiles([]);
@@ -150,6 +153,9 @@ export function FileManager({
       const result = await command<FileItem[] | { items: FileItem[]; skipped: number }>("file_list", { target, path });
       const files = Array.isArray(result) ? result : result.items;
       if (current === generation.current) {
+        if (restoreScrollTop !== undefined) {
+          pendingScroll.current = { generation: current, top: restoreScrollTop };
+        }
         setSkippedNames(Array.isArray(result) ? 0 : result.skipped);
         setFiles(
           files.sort(
@@ -166,6 +172,13 @@ export function FileManager({
       if (current === generation.current) setLoading(false);
     }
   }, [target, path, username]);
+  useLayoutEffect(() => {
+    const pending = pendingScroll.current;
+    if (!loading && pending && pending.generation === generation.current) {
+      if (fileItemsRef.current) fileItemsRef.current.scrollTop = pending.top;
+      pendingScroll.current = null;
+    }
+  }, [files, loading]);
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
@@ -335,7 +348,7 @@ export function FileManager({
         toast.success(directory(prompt.file) ? "远程目录已删除" : "远程文件已删除");
       }
       setPrompt(null);
-      await load();
+      await load(prompt.kind === "delete" ? fileItemsRef.current?.scrollTop : undefined);
     } catch (error) {
       const name =
         prompt.kind === "mkdir" ? prompt.name : prompt.file.name;
@@ -500,7 +513,7 @@ export function FileManager({
           </Button>
         </div>
       ) : null}
-      <div className="file-items" aria-busy={loading || busy}>
+      <div ref={fileItemsRef} className="file-items" aria-busy={loading || busy}>
         {loading ? (
           <div className="table-empty">
             <LoaderCircle className="animate-spin" />
