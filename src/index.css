@@ -2925,6 +2925,7 @@
   font-size: 13px;
   font-weight: 400;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 .delete-confirm-dialog__main strong {
   font-weight: 500;
@@ -2940,6 +2941,8 @@
 }
 .delete-confirm-dialog [data-slot="dialog-footer"],
 .dark .delete-confirm-dialog [data-slot="dialog-footer"] {
+  flex-direction: row;
+  justify-content: flex-end;
   padding: 10px 16px 0;
 }
 .delete-confirm-dialog [data-slot="dialog-footer"] [data-slot="button"],

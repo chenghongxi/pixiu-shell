@@ -255,6 +255,7 @@ export default function App() {
   const [workspaceDeleteHosts, setWorkspaceDeleteHosts] = useState<
     LocalHost[]
   >([]);
+  const [workspaceDeletingHosts, setWorkspaceDeletingHosts] = useState(false);
   const [workspaceHostKeyword, setWorkspaceHostKeyword] = useState("");
   const [workspaceHostNotice, setWorkspaceHostNotice] = useState(true);
   const [workspaceBatchImportOpen, setWorkspaceBatchImportOpen] =
@@ -871,7 +872,8 @@ export default function App() {
     }
   }
   async function deleteWorkspaceHost() {
-    if (!workspaceDeleteHosts.length) return;
+    if (!workspaceDeleteHosts.length || workspaceDeletingHosts) return;
+    setWorkspaceDeletingHosts(true);
     try {
       for (const host of workspaceDeleteHosts) {
         if (!host.id) continue;
@@ -887,6 +889,8 @@ export default function App() {
       await refreshLocal();
     } catch (error) {
       toast.error(errorMessage(error));
+    } finally {
+      setWorkspaceDeletingHosts(false);
     }
   }
   async function login() {
@@ -3273,6 +3277,7 @@ export default function App() {
             : `确定要删除主机“${workspaceDeleteHosts[0]?.name}”吗？`
         }
         hint="本地配置和凭据会一起删除，已打开的会话不受影响。"
+        loading={workspaceDeletingHosts}
         onOpenChange={(open) => {
           if (!open) setWorkspaceDeleteHosts([]);
         }}

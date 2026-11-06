@@ -21,6 +21,7 @@ import { Popover } from "radix-ui";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { FileCodeEditor } from "./FileCodeEditor";
 import {
   Dialog,
@@ -364,11 +365,7 @@ export function FileManager({
           ? "修改权限"
           : prompt?.kind === "edit"
             ? `编辑 ${prompt.file.name}`
-            : prompt?.kind === "delete"
-              ? directory(prompt.file)
-                ? "删除远程目录？"
-                : "删除远程文件？"
-              : "";
+            : "";
   const nameCounts = new Map<string, number>();
   for (const file of files) nameCounts.set(file.name, (nameCounts.get(file.name) ?? 0) + 1);
   const opaquePath = path !== shownPath;
@@ -649,7 +646,7 @@ export function FileManager({
         </footer>
       ) : null}
       <Dialog
-        open={!!prompt}
+        open={!!prompt && prompt.kind !== "delete"}
         onOpenChange={(open) => {
           if (!open && !busy) setPrompt(null);
         }}
@@ -667,13 +664,7 @@ export function FileManager({
         >
           <DialogHeader>
             <DialogTitle>{promptTitle}</DialogTitle>
-            {prompt?.kind === "delete" ? (
-              <DialogDescription>
-                {directory(prompt.file)
-                  ? `将删除目录 ${prompt.file.name} 及其全部内容。此操作无法撤销。`
-                  : `将永久删除 ${prompt.file.name}。此操作无法撤销。`}
-              </DialogDescription>
-            ) : prompt?.kind === "edit" ? (
+            {prompt?.kind === "edit" ? (
               <DialogDescription className="sr-only">
                 在线编辑远程文本文件
               </DialogDescription>
@@ -779,21 +770,37 @@ export function FileManager({
               取消
             </Button>
             <Button
-              variant={prompt?.kind === "delete" ? "destructive" : "default"}
               disabled={busy}
               onClick={() => void submitPrompt()}
             >
-              {prompt?.kind === "delete"
-                ? "确认删除"
-                : prompt?.kind === "edit"
-                  ? "保存"
-                  : prompt?.kind === "rename"
-                    ? "重命名"
-                    : "确定"}
+              {prompt?.kind === "edit"
+                ? "保存"
+                : prompt?.kind === "rename"
+                  ? "重命名"
+                  : "确定"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {prompt?.kind === "delete" ? (
+        <DeleteConfirmDialog
+          open
+          label={`确定要删除远程${directory(prompt.file) ? "目录" : "文件"}“${prompt.file.name}”吗？`}
+          hint={
+            directory(prompt.file)
+              ? "目录及其全部内容将被永久删除，此操作无法撤销。"
+              : "文件将被永久删除，此操作无法撤销。"
+          }
+          loading={busy}
+          onOpenChange={(open) => {
+            if (!open) setPrompt(null);
+          }}
+          onConfirm={() => void submitPrompt()}
+        >
+          确定要删除远程{directory(prompt.file) ? "目录" : "文件"} “
+          <strong>{prompt.file.name}</strong>” 吗？
+        </DeleteConfirmDialog>
+      ) : null}
     </aside>
   );
 }
