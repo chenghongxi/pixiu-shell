@@ -2,11 +2,12 @@ use crate::ssh::connect_session;
 use crate::storage::LocalHost;
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
-use ssh2::{FileStat, OpenFlags, OpenType, Sftp};
+use crate::raw_sftp::Sftp;
+use ssh2::{FileStat, OpenFlags, OpenType};
 use std::{
     collections::HashMap,
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     sync::{LazyLock, Mutex},
 };
@@ -21,6 +22,7 @@ const CHUNK: usize = 256 * 1024;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileItem {
     name: String,
+    name_bytes: Vec<u8>,
     path: String,
     kind: &'static str,
     size: u64,
@@ -33,6 +35,69 @@ pub(crate) fn validate_path(path: &str) -> Result<()> {
         "请输入绝对远程路径"
     );
     Ok(())
+}
+const RAW_PREFIX: &str = ".pixiu-raw-";
+#[derive(Default)]
+struct RawNames {
+    by_token: HashMap<String, Vec<u8>>,
+    by_name: HashMap<Vec<u8>, String>,
+}
+static RAW_NAMES: LazyLock<Mutex<RawNames>> = LazyLock::new(Default::default);
+
+fn raw_token(name: &[u8]) -> Result<String> {
+    let mut names = RAW_NAMES.lock().map_err(|_| anyhow::anyhow!("文件名缓存不可用"))?;
+    if let Some(token) = names.by_name.get(name) {
+        return Ok(token.clone());
+    }
+    ensure!(names.by_token.len() < 100_000, "文件名缓存已满，请重启应用");
+    let token = format!("{RAW_PREFIX}{}", Uuid::new_v4().simple());
+    names.by_token.insert(token.clone(), name.to_vec());
+    names.by_name.insert(name.to_vec(), token.clone());
+    Ok(token)
+}
+
+pub(crate) fn resolve_sftp_path(path: &Path) -> std::result::Result<Option<Vec<u8>>, ssh2::Error> {
+    let Some(path) = path.to_str() else { return Ok(None) };
+    if !path.contains(RAW_PREFIX) { return Ok(None); }
+    let names = RAW_NAMES.lock().map_err(|_| ssh2::Error::new(ssh2::ErrorCode::Session(-1), "文件名缓存不可用"))?;
+    let normalized = path.replace('\\', "/");
+    let mut result = Vec::new();
+    for (index, part) in normalized.split('/').enumerate() {
+        if index > 0 { result.push(b'/'); }
+        if part.starts_with(RAW_PREFIX) {
+            let bytes = names.by_token.get(part).ok_or_else(|| ssh2::Error::new(ssh2::ErrorCode::Session(-1), "文件名标识已失效"))?;
+            result.extend_from_slice(bytes);
+        } else {
+            result.extend_from_slice(part.as_bytes());
+        }
+    }
+    if result.len() > 4096 {
+        return Err(ssh2::Error::new(ssh2::ErrorCode::Session(-1), "远程路径过长"));
+    }
+    Ok(Some(result))
+}
+
+fn display_name(bytes: &[u8]) -> String {
+    let decoded = std::str::from_utf8(bytes).ok().map(str::to_owned).or_else(|| {
+        let (text, _, had_errors) = encoding_rs::GBK.decode(bytes);
+        (!had_errors).then(|| text.into_owned())
+    });
+    decoded.filter(|value| !value.chars().any(char::is_control))
+        .unwrap_or_else(|| bytes.iter().map(|b| format!("\\x{b:02X}")).collect())
+}
+
+pub(crate) fn display_path(path: &str) -> String {
+    let Ok(names) = RAW_NAMES.lock() else { return path.to_owned() };
+    path.split('/').map(|part| names.by_token.get(part)
+        .map(|bytes| display_name(bytes)).unwrap_or_else(|| part.to_owned()))
+        .collect::<Vec<_>>().join("/")
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FileList {
+    items: Vec<FileItem>,
+    skipped: usize,
 }
 
 fn normalize_remote_path(path: &str) -> Result<String> {
@@ -50,9 +115,13 @@ fn normalize_remote_path(path: &str) -> Result<String> {
 /// SFTP starts in the login directory, which is the account home.
 pub(crate) fn home(sftp: &Sftp) -> Result<String> {
     let resolved = sftp
-        .realpath(Path::new("."))
+        .realpath_bytes(Path::new("."))
         .context("无法解析用户家目录")?;
-    normalize_remote_path(&resolved.to_string_lossy())
+    let mut components = Vec::new();
+    for name in resolved.split(|b| *b == b'/').filter(|name| !name.is_empty()) {
+        components.push(path_component(name)?);
+    }
+    normalize_remote_path(&format!("/{}", components.join("/")))
 }
 pub(crate) fn connect(host: &LocalHost, known_hosts: &Path) -> Result<Sftp> {
     connect_with_credentials(host, known_hosts, None, None)
@@ -63,8 +132,7 @@ pub(crate) fn connect_with_credentials(
     supplied_password: Option<&str>,
     proxy_password: Option<&str>,
 ) -> Result<Sftp> {
-    connect_session(host, known_hosts, supplied_password, proxy_password, None)?
-        .sftp()
+    Sftp::new(connect_session(host, known_hosts, supplied_password, proxy_password, None)?)
         .context("服务器不支持 SFTP")
 }
 
@@ -207,20 +275,59 @@ fn from_libssh2(error: &anyhow::Error) -> bool {
         .chain()
         .any(|cause| cause.downcast_ref::<ssh2::Error>().is_some())
 }
-pub(crate) fn list(sftp: &Sftp, path: &str) -> Result<Vec<FileItem>> {
-    validate_path(path)?;
-    let mut items = Vec::new();
-    for (path, stat) in sftp.readdir(Path::new(path))? {
-        let name = path
-            .file_name()
-            .context("文件名无效")?
-            .to_string_lossy()
-            .into_owned();
-        if name == "." || name == ".." {
+fn valid_name_bytes(name: &[u8]) -> bool {
+    !name.is_empty() && name.len() <= 255 && !name.contains(&0) && !name.contains(&b'/')
+}
+
+fn path_component(name: &[u8]) -> Result<String> {
+    ensure!(valid_name_bytes(name), "文件名无效");
+    match std::str::from_utf8(name) {
+        Ok(value) if !value.starts_with(RAW_PREFIX)
+            && !value.contains('\\')
+            && !value.chars().any(char::is_control) => Ok(value.to_owned()),
+        _ => raw_token(name),
+    }
+}
+
+fn read_directory(sftp: &Sftp, path: &Path) -> Result<(Vec<(PathBuf, FileStat, Vec<u8>)>, usize)> {
+    let mut dir = sftp.opendir(path)?;
+    let mut entries = Vec::new();
+    let mut skipped = 0;
+    loop {
+        let entry = match dir.readdir_bytes() {
+            Ok(entry) => entry,
+            Err(error) if error.code() == ssh2::ErrorCode::Session(-16) => break,
+            Err(error) if error.code() == ssh2::ErrorCode::Session(-37) => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let (name, stat) = entry;
+        if name == b"." || name == b".." {
             continue;
         }
+        if !valid_name_bytes(&name) {
+            skipped += 1;
+            continue;
+        }
+        let name_component = path_component(&name)?;
+        let parent = path.to_str().context("目录路径无效")?;
+        let child = PathBuf::from(format!("{}/{}", parent.trim_end_matches('/'), name_component));
+        if child.to_str().is_none_or(|value| validate_path(value).is_err()) {
+            skipped += 1;
+            continue;
+        }
+        entries.push((child, stat, name));
+    }
+    Ok((entries, skipped))
+}
+
+pub(crate) fn list(sftp: &Sftp, path: &str) -> Result<FileList> {
+    validate_path(path)?;
+    let mut items = Vec::new();
+    let (entries, skipped) = read_directory(sftp, Path::new(path))?;
+    for (path, stat, name_bytes) in entries {
         items.push(FileItem {
-            name,
+            name: display_name(&name_bytes),
+            name_bytes,
             path: path.to_string_lossy().into_owned(),
             kind: entry_kind(sftp, &path, &stat),
             size: stat.size.unwrap_or(0),
@@ -228,7 +335,7 @@ pub(crate) fn list(sftp: &Sftp, path: &str) -> Result<Vec<FileItem>> {
             modified_at: stat.mtime.map(|value| value.to_string()),
         });
     }
-    Ok(items)
+    Ok(FileList { items, skipped })
 }
 
 fn entry_kind(sftp: &Sftp, path: &Path, stat: &FileStat) -> &'static str {
@@ -345,6 +452,7 @@ pub(crate) fn join_name(directory: &str, name: &str) -> Result<String> {
             && !name.contains(['/', '\\', '\0', '\n', '\r']),
         "目录或文件名无效"
     );
+    let name = path_component(name.as_bytes())?;
     let path = if directory == "/" {
         format!("/{name}")
     } else {
@@ -421,14 +529,10 @@ pub(crate) fn read_text(sftp: &Sftp, remote: &str) -> Result<String> {
 }
 
 fn unreadable_reason(sftp: &Sftp, path: &Path) -> Option<String> {
-    if let Ok(target) = sftp.readlink(path) {
-        let target = target.to_string_lossy();
-        if !target.is_empty() {
-            return Some(format!("这是符号链接，指向 {target}，无法在线编辑"));
-        }
-        return Some("这是符号链接，无法在线编辑".into());
-    }
     if let Ok(meta) = sftp.lstat(path).or_else(|_| sftp.stat(path)) {
+        if meta.file_type().is_symlink() {
+            return Some("这是符号链接，无法在线编辑".into());
+        }
         if meta.is_dir() {
             return Some("这是目录，无法在线编辑".into());
         }
@@ -455,44 +559,51 @@ pub(crate) fn write_bytes(sftp: &Sftp, remote: &str, bytes: &[u8]) -> Result<()>
     Ok(())
 }
 
-fn remove_entry(sftp: &Sftp, remote: &str, depth: u8) -> Result<()> {
+enum DeleteEntry {
+    File(PathBuf),
+    Directory(PathBuf, Vec<DeleteEntry>),
+}
+
+fn prepare_delete_tree(sftp: &Sftp, path: &Path, depth: u8) -> Result<DeleteEntry> {
+    ensure!(depth < 32, "目录层级过深，已停止删除");
+    let stat = sftp.lstat(path).context("无法读取文件属性")?;
+    if stat.file_type().is_symlink() || !stat.is_dir() {
+        return Ok(DeleteEntry::File(path.to_path_buf()));
+    }
+    let (children, skipped) = read_directory(sftp, path).context("无法读取目录内容")?;
+    ensure!(skipped == 0, "目录包含无法安全处理的文件名，已停止删除");
+    let mut entries = Vec::with_capacity(children.len());
+    for (child, child_stat, _) in children {
+        if child_stat.is_dir() && !child_stat.file_type().is_symlink() {
+            entries.push(prepare_delete_tree(sftp, &child, depth + 1)?);
+        } else {
+            entries.push(DeleteEntry::File(child));
+        }
+    }
+    Ok(DeleteEntry::Directory(path.to_path_buf(), entries))
+}
+
+fn remove_entry(sftp: &Sftp, entry: DeleteEntry) -> Result<()> {
+    match entry {
+        DeleteEntry::File(path) => sftp.unlink(&path)
+            .or_else(|_| sftp.rmdir(&path))
+            .context("无法删除文件"),
+        DeleteEntry::Directory(path, children) => {
+            let stat = sftp.lstat(&path).context("无法读取文件属性")?;
+            ensure!(stat.is_dir() && !stat.file_type().is_symlink(), "目录已发生变化，已停止删除");
+            for child in children {
+                remove_entry(sftp, child)?;
+            }
+            sftp.rmdir(&path).context("无法删除文件夹")
+        }
+    }
+}
+
+pub(crate) fn delete(sftp: &Sftp, remote: &str) -> Result<()> {
     validate_path(remote)?;
     ensure!(remote != "/", "不能删除根目录");
-    ensure!(depth < 32, "目录层级过深，已停止删除");
-    let path = Path::new(remote);
-    let stat = sftp
-        .lstat(path)
-        .or_else(|_| sftp.stat(path))
-        .context("无法读取文件属性")?;
-    if stat.file_type().is_symlink() || !stat.is_dir() {
-        sftp.unlink(path).context("无法删除文件")?;
-        return Ok(());
-    }
-    for (child, child_stat) in sftp
-        .readdir(path)
-        .context("无法读取目录内容")?
-    {
-        let name = child
-            .file_name()
-            .context("文件名无效")?
-            .to_string_lossy()
-            .into_owned();
-        if name == "." || name == ".." {
-            continue;
-        }
-        let child_path = child.to_string_lossy().into_owned();
-        if child_stat.is_dir() && !child_stat.file_type().is_symlink() {
-            remove_entry(sftp, &child_path, depth + 1)?;
-        } else {
-            sftp.unlink(&child)
-                .or_else(|_| sftp.rmdir(&child))
-                .context("无法删除文件")?;
-        }
-    }
-    sftp.rmdir(path).context("无法删除文件夹")
-}
-pub(crate) fn delete(sftp: &Sftp, remote: &str) -> Result<()> {
-    remove_entry(sftp, remote, 0)
+    let entries = prepare_delete_tree(sftp, Path::new(remote), 0)?;
+    remove_entry(sftp, entries)
 }
 pub(crate) fn write_download(destination: &Path, bytes: &[u8]) -> Result<()> {
     let parent = destination.parent().context("保存路径无效")?;
@@ -578,6 +689,7 @@ mod tests {
         let sftp = connect_with_credentials(&host, known, Some("pixiu-fixture-password"), None)?;
         assert!(
             list(&sftp, "/")?
+                .items
                 .iter()
                 .any(|entry| entry.name == "welcome.txt")
         );
@@ -608,6 +720,7 @@ mod tests {
         let sftp = connect(&host, known)?;
         assert!(
             list(&sftp, "/")?
+                .items
                 .iter()
                 .any(|entry| entry.name == "welcome.txt")
         );
@@ -626,6 +739,7 @@ mod tests {
         delete(&sftp, "/roundtrip.txt")?;
         assert!(
             !list(&sftp, "/")?
+                .items
                 .iter()
                 .any(|entry| entry.name == "roundtrip.txt")
         );

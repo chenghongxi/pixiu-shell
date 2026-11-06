@@ -1032,6 +1032,17 @@ pub(crate) async fn file_upload(
     }
     Ok(json!({"cancelled":false}))
 }
+fn download_filename(path: &str, display_name: Option<&str>) -> Result<String> {
+    let visible_path = files::display_path(path);
+    let fallback = visible_path.rsplit('/').next().filter(|name| !name.is_empty())
+        .context("文件名无效")?;
+    let name: String = display_name.unwrap_or(fallback).chars()
+        .map(|ch| if ch.is_control() || "<>:\"/\\|?*".contains(ch) { '_' } else { ch })
+        .collect();
+    let name = name.trim_end_matches([' ', '.']);
+    Ok(if name.is_empty() { "download" } else { name }.to_owned())
+}
+
 #[tauri::command]
 pub(crate) async fn file_download(
     state: State<'_, AppState>,
@@ -1039,12 +1050,7 @@ pub(crate) async fn file_download(
     path: String,
 ) -> CommandResult<Value> {
     files::validate_path(&path).map_err(error)?;
-    let name = PathBuf::from(&path)
-        .file_name()
-        .context("文件名无效")
-        .map_err(error)?
-        .to_string_lossy()
-        .into_owned();
+    let name = download_filename(&path, None).map_err(error)?;
     let picked = tokio::task::spawn_blocking(move || {
         rfd::FileDialog::new()
             .set_title("保存下载文件")
@@ -1178,16 +1184,12 @@ pub(crate) async fn file_download_progress(
     state: State<'_, AppState>,
     target: Target,
     path: String,
+    display_name: Option<String>,
     id: uuid::Uuid,
     channel: Channel<Value>,
 ) -> CommandResult<Value> {
     files::validate_path(&path).map_err(error)?;
-    let name = PathBuf::from(&path)
-        .file_name()
-        .context("文件名无效")
-        .map_err(error)?
-        .to_string_lossy()
-        .into_owned();
+    let name = download_filename(&path, display_name.as_deref()).map_err(error)?;
     let picked = tokio::task::spawn_blocking(move || {
         rfd::FileDialog::new()
             .set_title("保存下载文件")
@@ -1375,10 +1377,13 @@ pub(crate) async fn identity_delete(
 pub(crate) async fn file_home(
     state: State<'_, AppState>,
     target: Target,
-) -> CommandResult<String> {
+) -> CommandResult<Value> {
     match target {
-        Target::Local { .. } => with_local_sftp(&state, target, files::home).await,
-        Target::Platform { .. } => Ok("/".into()),
+        Target::Local { .. } => {
+            let path = with_local_sftp(&state, target, files::home).await?;
+            Ok(json!({ "displayPath": files::display_path(&path), "path": path }))
+        }
+        Target::Platform { .. } => Ok(json!("/")),
         Target::Shell => Err("本机 Shell 请使用系统文件管理器".into()),
     }
 }
@@ -1394,7 +1399,7 @@ fn local_sftp_target(target: &Target) -> CommandResult<uuid::Uuid> {
 async fn with_local_sftp<T: Send + 'static>(
     state: &State<'_, AppState>,
     target: Target,
-    operation: impl Fn(&ssh2::Sftp) -> Result<T> + Send + 'static,
+    operation: impl Fn(&crate::raw_sftp::Sftp) -> Result<T> + Send + 'static,
 ) -> CommandResult<T> {
     let id = local_sftp_target(&target)?;
     let database = state.database.to_path_buf();

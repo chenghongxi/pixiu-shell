@@ -294,6 +294,7 @@ export const defaultPreferences: Preferences = {
 };
 export interface FileItem {
   name: string;
+  nameBytes?: number[];
   path: string;
   kind: string;
   size: number;

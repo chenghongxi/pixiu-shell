@@ -121,11 +121,13 @@ export function FileManager({
 }) {
   const local = target.mode === "local";
   const [path, setPath] = useState("");
+  const [shownPath, setShownPath] = useState("");
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [skippedNames, setSkippedNames] = useState(0);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [morePath, setMorePath] = useState<string | null>(null);
   const [transferTask, setTransferTask] = useState<{
@@ -142,9 +144,12 @@ export function FileManager({
     setLoading(true);
     setError("");
     setFiles([]);
+    setSkippedNames(0);
     try {
-      const files = await command<FileItem[]>("file_list", { target, path });
-      if (current === generation.current)
+      const result = await command<FileItem[] | { items: FileItem[]; skipped: number }>("file_list", { target, path });
+      const files = Array.isArray(result) ? result : result.items;
+      if (current === generation.current) {
+        setSkippedNames(Array.isArray(result) ? 0 : result.skipped);
         setFiles(
           files.sort(
             (a, b) =>
@@ -152,6 +157,7 @@ export function FileManager({
               a.name.localeCompare(b.name),
           ),
         );
+      }
     } catch (error) {
       if (current === generation.current)
         setError(listError(path, username, error));
@@ -173,16 +179,20 @@ export function FileManager({
   }, [load]);
   useEffect(() => {
     let cancelled = false;
-    void command<string>("file_home", { target })
+    void command<string | { path: string; displayPath: string }>("file_home", { target })
       .then((home) => {
         if (!cancelled) {
-          setInput(home);
-          setPath(home);
+          const resolved = typeof home === "string" ? home : home.path;
+          const displayed = typeof home === "string" ? home : home.displayPath;
+          setInput(displayed);
+          setShownPath(displayed);
+          setPath(resolved);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setInput("/");
+          setShownPath("/");
           setPath("/");
         }
       });
@@ -190,8 +200,9 @@ export function FileManager({
       cancelled = true;
     };
   }, [target]);
-  function navigate(next: string) {
-    setInput(next);
+  function navigate(next: string, displayed = next) {
+    setInput(displayed);
+    setShownPath(displayed);
     setPath(next);
   }
   async function transfer(operation: "upload" | "download", file?: FileItem) {
@@ -227,7 +238,7 @@ export function FileManager({
             channel,
             ...(operation === "upload"
               ? { directory: path }
-              : { path: file?.path }),
+              : { path: file?.path, displayName: file?.name }),
           },
         );
         if (!result.cancelled) {
@@ -301,6 +312,7 @@ export function FileManager({
       } else if (prompt.kind === "rename") {
         const name = prompt.name.trim();
         if (!name) throw new Error("请输入新名称");
+        if (name === prompt.file.name) throw new Error("新名称与原名称相同");
         await command("file_rename", { target, path: prompt.file.path, name });
         toast.success("已重命名");
       } else if (prompt.kind === "chmod") {
@@ -357,6 +369,9 @@ export function FileManager({
                 ? "删除远程目录？"
                 : "删除远程文件？"
               : "";
+  const nameCounts = new Map<string, number>();
+  for (const file of files) nameCounts.set(file.name, (nameCounts.get(file.name) ?? 0) + 1);
+  const opaquePath = path !== shownPath;
   return (
     <aside
       className={embedded ? "file-panel file-panel--embedded" : "file-panel"}
@@ -394,6 +409,7 @@ export function FileManager({
           onClick={() =>
             navigate(
               path.replace(/\/+$/, "").split("/").slice(0, -1).join("/") || "/",
+              shownPath.replace(/\/+$/, "").split("/").slice(0, -1).join("/") || "/",
             )
           }
         >
@@ -403,13 +419,15 @@ export function FileManager({
           aria-label="远程目录"
           value={input}
           disabled={busy}
+          readOnly={opaquePath}
+          title={opaquePath ? "当前目录包含非 UTF-8 文件名，请通过列表或上级目录导航" : undefined}
           onChange={(event) => setInput(event.target.value)}
         />
         <Button
           type="submit"
           variant="ghost"
           size="icon-sm"
-          disabled={busy || input === path}
+          disabled={busy || input === shownPath}
           aria-label="打开路径"
           title="打开路径"
         >
@@ -422,6 +440,7 @@ export function FileManager({
             ? "读取目录…"
             : `${files.filter(directory).length} 个目录 · ${files.filter((file) => !directory(file)).length} 个文件`}
           {username ? ` · 以 ${username} 访问` : ""}
+          {skippedNames > 0 ? ` · ${skippedNames} 个文件名无法安全显示，已跳过` : ""}
         </span>
         <div className="file-toolbar-actions">
           {local ? (
@@ -499,7 +518,7 @@ export function FileManager({
               <div key={file.path} className="file-row" data-kind={kind}>
                 <button
                   disabled={busy || !directory(file)}
-                  onClick={() => navigate(file.path)}
+                  onClick={() => navigate(file.path, `${shownPath.replace(/\/+$/, "")}/${file.name}`)}
                   title={file.name}
                 >
                   <span className="file-type-icon">
@@ -514,6 +533,9 @@ export function FileManager({
                           ? "符号链接"
                           : sizeLabel(file.size)}
                       {file.permissions ? ` · ${file.permissions}` : ""}
+                      {(nameCounts.get(file.name) ?? 0) > 1 && file.nameBytes
+                        ? ` · ${file.nameBytes.map((byte) => byte.toString(16).padStart(2, "0")).join(" ")}`
+                        : ""}
                     </small>
                   </span>
                 </button>
@@ -616,7 +638,7 @@ export function FileManager({
             );
           })
         )}
-        {!loading && !error && !files.length ? (
+        {!loading && !error && !files.length && !skippedNames ? (
           <div className="table-empty">此目录为空</div>
         ) : null}
       </div>
@@ -648,8 +670,8 @@ export function FileManager({
             {prompt?.kind === "delete" ? (
               <DialogDescription>
                 {directory(prompt.file)
-                  ? `将删除目录 ${prompt.file.path} 及其全部内容。此操作无法撤销。`
-                  : `将永久删除 ${prompt.file.path}。此操作无法撤销。`}
+                  ? `将删除目录 ${prompt.file.name} 及其全部内容。此操作无法撤销。`
+                  : `将永久删除 ${prompt.file.name}。此操作无法撤销。`}
               </DialogDescription>
             ) : prompt?.kind === "edit" ? (
               <DialogDescription className="sr-only">
@@ -712,7 +734,7 @@ export function FileManager({
             <div className="file-form">
               <div className="file-form-row">
                 <span>路径</span>
-                <span className="file-form-value" title={prompt.file.path}>
+                <span className="file-form-value" title={prompt.file.name}>
                   {prompt.file.name}
                 </span>
               </div>

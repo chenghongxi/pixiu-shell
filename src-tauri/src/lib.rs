@@ -15,6 +15,7 @@ mod monitor;
 mod platform;
 mod preferences;
 mod proxy;
+mod raw_sftp;
 mod screen_lock;
 mod ssh;
 mod storage;
