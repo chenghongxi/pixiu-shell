@@ -150,8 +150,10 @@
     color: var(--foreground);
     font-size: 12px;
   }
-  button {
-    cursor: pointer;
+  button,
+  a:any-link,
+  summary {
+    cursor: default;
   }
   button:disabled {
     cursor: not-allowed;
@@ -180,6 +182,12 @@
   [hidden] {
     display: none !important;
   }
+}
+/* xterm's link and scrollbar controls otherwise use a pointer cursor. */
+.xterm.xterm-cursor-pointer:not(.column-select.focus),
+.xterm .xterm-cursor-pointer:not(.column-select.focus),
+.xterm .xterm-scrollable-element > .scrollbar > .scra:not([hidden]) {
+  cursor: default;
 }
 .app-shell {
   height: 100dvh;
@@ -323,7 +331,7 @@
   gap: 8px;
   height: 28px;
   list-style: none;
-  cursor: pointer;
+  cursor: default;
   color: var(--foreground);
   font-size: 11px;
   font-weight: 500;
@@ -435,7 +443,7 @@
   align-self: center;
   color: var(--muted-foreground);
   opacity: 1;
-  cursor: pointer;
+  cursor: default;
 }
 .host-row .host-connect-icon:hover,
 .host-row .host-connect-icon:focus-visible {
@@ -921,7 +929,7 @@
   height: 13px;
   margin: 0;
   accent-color: var(--primary);
-  cursor: pointer;
+  cursor: default;
 }
 .workspace-host-pagination {
   font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
@@ -946,7 +954,7 @@
   color: #5d87ff;
   font: inherit;
   font-weight: 500;
-  cursor: pointer;
+  cursor: default;
 }
 .workspace-host-table__name-link:hover {
   color: #415eb2;
@@ -1038,7 +1046,7 @@
   border-radius: 4px;
   background: transparent;
   color: inherit;
-  cursor: pointer;
+  cursor: default;
   opacity: 0.7;
 }
 .host-notice__close:hover {
@@ -1130,7 +1138,7 @@
   color: var(--primary);
   font-size: 12px;
   line-height: 1.5;
-  cursor: pointer;
+  cursor: default;
   white-space: nowrap;
 }
 .host-link:hover {
@@ -1420,7 +1428,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--muted-foreground);
-  cursor: pointer;
+  cursor: default;
   transition:
     border-color 0.12s ease,
     background-color 0.12s ease;
@@ -2536,7 +2544,7 @@
   font-size: 12px;
   text-align: center;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   outline: none;
 }
 .dropdown-menu-item:focus {
@@ -2993,7 +3001,7 @@
   border: 2px solid var(--background);
   box-shadow: 0 1px 4px #00000033;
   outline: none;
-  cursor: grab;
+  cursor: default;
 }
 .slider-thumb:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 55%, transparent);
@@ -3030,7 +3038,7 @@
   border: 0;
   border-radius: 6px;
   padding: 8px;
-  cursor: pointer;
+  cursor: default;
   position: relative;
 }
 .palette-option[data-selected="true"] {
@@ -3623,7 +3631,7 @@ body,
   max-width: 260px;
 }
 .session-tabrow .session-tab-label {
-  cursor: pointer;
+  cursor: default;
 }
 .session-tabrow .session-tab-drag > span,
 .session-tabrow .session-tab-label > span {
@@ -3885,7 +3893,7 @@ body,
   color: var(--muted-foreground);
 }
 .ai-context-preview summary {
-  cursor: pointer;
+  cursor: default;
 }
 .ai-context-preview pre {
   white-space: pre-wrap;
@@ -4210,11 +4218,16 @@ body,
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  cursor: grab;
+}
+.session-tab-drag {
+  cursor: default;
+}
+.pane-drag-handle {
+  cursor: default;
 }
 .app-shell[data-pane-dragging="true"],
 .app-shell[data-pane-dragging="true"] * {
-  cursor: grabbing !important;
+  cursor: default !important;
 }
 .session-tab[data-drag-source="true"] {
   opacity: 0.55;
@@ -4300,7 +4313,7 @@ body,
   height: 100%;
   margin-left: -8px;
   padding: 0 8px;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -4534,7 +4547,7 @@ body,
 }
 .batch-targets summary {
   list-style: none;
-  cursor: pointer;
+  cursor: default;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -5078,7 +5091,7 @@ body,
   gap: 9px;
   padding: 10px 7px;
   border-radius: 5px;
-  cursor: pointer;
+  cursor: default;
   border: 0;
 }
 .target-host[data-selected="true"] {
@@ -5208,7 +5221,7 @@ body,
 }
 .script-result-step summary {
   padding: 10px 12px;
-  cursor: pointer;
+  cursor: default;
   font-size: 11px;
   background: var(--toolbar);
 }
@@ -5925,7 +5938,7 @@ body,
   gap: 7px;
   color: var(--foreground);
   font-size: 12px;
-  cursor: pointer;
+  cursor: default;
 }
 .host-radio input {
   display: grid;
@@ -5937,7 +5950,7 @@ body,
   border: 1px solid var(--border);
   border-radius: 50%;
   background: var(--card-solid);
-  cursor: pointer;
+  cursor: default;
 }
 .host-radio input:checked {
   border-color: var(--primary);
@@ -5955,7 +5968,7 @@ body,
   background: transparent;
   color: var(--primary);
   font-size: 12px;
-  cursor: pointer;
+  cursor: default;
 }
 .host-form-more svg {
   width: 13px;
@@ -5989,7 +6002,7 @@ body,
   border: 0;
   background: transparent;
   color: var(--secondary-foreground);
-  cursor: pointer;
+  cursor: default;
 }
 .host-port > button:hover {
   background: var(--active-solid);
@@ -8290,7 +8303,7 @@ body .host-search-dialog > .host-search-results {
   border-radius: 4px;
   background: transparent;
   color: var(--muted-foreground);
-  cursor: pointer;
+  cursor: default;
   align-self: center;
 }
 .metric-card__expand:hover {
@@ -8530,7 +8543,7 @@ body .host-search-dialog > .host-search-results {
   border-radius: 4px;
   background: transparent;
   color: var(--muted-foreground);
-  cursor: pointer;
+  cursor: default;
   transition:
     background-color 0.12s ease,
     color 0.12s ease;
@@ -8558,7 +8571,7 @@ body .host-search-dialog > .host-search-results {
   border-radius: 4px;
   background: transparent;
   color: var(--muted-foreground);
-  cursor: pointer;
+  cursor: default;
 }
 .copy-button:hover {
   border-color: var(--border);
@@ -8748,7 +8761,7 @@ body .host-search-dialog > .host-search-results {
   gap: 6px;
   color: var(--editor-muted);
   font-size: 12px;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
 }
 .file-code-editor__wrap input {
