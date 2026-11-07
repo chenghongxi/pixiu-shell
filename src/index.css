@@ -3382,26 +3382,6 @@
   flex: 1;
   min-height: 0;
   padding: 0 5px 4px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--input) transparent;
-}
-.file-items::-webkit-scrollbar {
-  width: 8px;
-}
-.file-items::-webkit-scrollbar-track {
-  background: transparent;
-}
-.file-items::-webkit-scrollbar-thumb {
-  background: var(--input);
-  border-radius: 8px;
-}
-.file-items:hover {
-  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 70%, transparent)
-    transparent;
-}
-.file-items:hover::-webkit-scrollbar-thumb,
-.file-items::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted-foreground) 88%, transparent);
 }
 .file-row {
   display: flex;
@@ -8395,7 +8375,7 @@ body .host-search-dialog > .host-search-results {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-shrink: 0;
+  flex: none;
 }
 .monitor-panel > header .monitor-actions [data-slot="button"] {
   font-size: 10px;
