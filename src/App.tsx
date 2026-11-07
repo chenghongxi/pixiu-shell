@@ -1187,9 +1187,24 @@ export default function App() {
     setMaximizedPaneId(null);
     return true;
   }
+  function reorderSession(sourceId: string, targetId: string, before: boolean) {
+    setSessions((current) => {
+      const from = current.findIndex((session) => session.id === sourceId);
+      if (from < 0) return current;
+      const next = current.slice();
+      const [item] = next.splice(from, 1);
+      let to = next.findIndex((session) => session.id === targetId);
+      if (to < 0 || !item) return current;
+      if (!before) to += 1;
+      next.splice(to, 0, item);
+      return next;
+    });
+  }
   const { drag, bind: bindPaneDrag } = usePaneDrag({
     activeId: active,
     onDrop: dockSession,
+    onReorder: (sourceId, reorder) =>
+      reorderSession(sourceId, reorder.targetId, reorder.before),
     onPreview: (id) => {
       if (sessions.some((session) => session.id === id)) {
         setActive(id);
@@ -2092,11 +2107,19 @@ export default function App() {
                         data-session-tab-id={session.id}
                         data-tauri-drag-region="false"
                         data-drag-source={drag?.sourceId === session.id}
+                        data-reorder={
+                          drag?.reorder?.targetId === session.id
+                            ? drag.reorder.before
+                              ? "before"
+                              : "after"
+                            : undefined
+                        }
+                        {...bindPaneDrag(session.id)}
                       >
                         <button
                           className="session-tab-drag"
-                          title="拖到终端左、右、上、下边缘分屏；悬停其他标签可切换目标"
-                          {...bindPaneDrag(session.id)}
+                          type="button"
+                          title="拖动调整标签顺序，或拖到终端边缘分屏"
                           onClick={() => activateSession(session)}
                           onDoubleClick={() => toggleMaximizedPane(session.id)}
                         >
@@ -2686,18 +2709,6 @@ export default function App() {
                       )
                         activateSession(session);
                     }}
-                    onPointerMove={
-                      bindPaneDrag<HTMLElement>(session.id).onPointerMove
-                    }
-                    onPointerUp={
-                      bindPaneDrag<HTMLElement>(session.id).onPointerUp
-                    }
-                    onPointerCancel={
-                      bindPaneDrag<HTMLElement>(session.id).onPointerCancel
-                    }
-                    onLostPointerCapture={
-                      bindPaneDrag<HTMLElement>(session.id).onLostPointerCapture
-                    }
                     onClickCapture={
                       bindPaneDrag<HTMLElement>(session.id).onClickCapture
                     }
@@ -3060,29 +3071,6 @@ export default function App() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        {drag ? (
-          <div
-            className="pane-drag-ghost"
-            style={{
-              left: Math.min(drag.x + 14, window.innerWidth - 220),
-              top: Math.min(drag.y + 18, window.innerHeight - 66),
-            }}
-            role="status"
-          >
-            <strong>
-              {sessions.find((session) => session.id === drag.sourceId)
-                ?.label ||
-                sessions.find((session) => session.id === drag.sourceId)?.host
-                  .name ||
-                "SSH 会话"}
-            </strong>
-            <span>
-              {drag.drop
-                ? "松开即可分屏 · Esc 取消"
-                : "拖到边缘重排 · 分屏中心交换位置"}
-            </span>
-          </div>
-        ) : null}
         {hostSearchOpen ? (
           <HostSearch
             hosts={mode === "local" ? localHosts.map(fromLocal) : platformHosts}
