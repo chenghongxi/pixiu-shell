@@ -3930,6 +3930,13 @@ body,
 .ai-context-preview summary {
   cursor: default;
 }
+.ai-context-preview p {
+  margin-top: 8px;
+  line-height: 1.5;
+}
+.ai-context-preview [role="alert"] {
+  color: var(--destructive);
+}
 .ai-context-preview pre {
   white-space: pre-wrap;
   max-height: 140px;

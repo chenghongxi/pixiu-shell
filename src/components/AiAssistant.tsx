@@ -8,7 +8,6 @@ import {
   Square,
   TerminalSquare,
   X,
-  RefreshCw,
   LoaderCircle,
   Pencil,
   CircleAlert,
@@ -89,6 +88,9 @@ const contextScopes: { value: ContextScope; label: string }[] = [
   { value: "recent", label: "最近输出" },
   { value: "none", label: "不带终端" },
 ];
+function diagnosisContext(context: TerminalContext): TerminalContext {
+  return { ...context, selectedText: "", currentCommand: "" };
+}
 function FollowNewQuestion({ questionId, error }: { questionId?: string; error: string }) {
   const { scrollToEnd } = useMessageScroller();
   useEffect(() => {
@@ -174,6 +176,8 @@ export function AiAssistant({
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<TerminalContext | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const previewDetails = useRef<HTMLDetailsElement>(null);
   const [approval, setApproval] = useState<{
     command: string;
     detail: string;
@@ -229,13 +233,18 @@ export function AiAssistant({
     if (!context) throw new Error("终端正在加载，请连接后重试");
     return context;
   }
-  function refreshPreview() {
+  function refreshPreview(scope = contextScope) {
     try {
       const context = capture();
-      setPreview(mode === "custom" ? scopeTerminalContext(context, contextScope) : context);
-      setError("");
+      setPreview(
+        mode === "custom"
+          ? scopeTerminalContext(context, scope)
+          : diagnosisContext(context),
+      );
+      setPreviewError("");
     } catch (error) {
-      setError(errorMessage(error));
+      setPreview(null);
+      setPreviewError(errorMessage(error));
     }
   }
   function confirmCommand(
@@ -260,12 +269,7 @@ export function AiAssistant({
   }
   function chooseScope(scope: ContextScope) {
     setContextScope(scope);
-    if (!preview || mode !== "custom") return;
-    try {
-      setPreview(scopeTerminalContext(capture(), scope));
-    } catch (error) {
-      setError(errorMessage(error));
-    }
+    if (previewDetails.current?.open && mode === "custom") refreshPreview(scope);
   }
   async function stop() {
     diagnosis.current?.abort();
@@ -338,7 +342,10 @@ export function AiAssistant({
     setBusy(true);
     setError("");
     setStatus("正在准备主机上下文…");
-    setPreview(context);
+    if (previewDetails.current?.open) {
+      setPreview(context);
+      setPreviewError("");
+    }
     const question = redactContext(prompt.trim());
     const createdAt = new Date().toISOString();
     setPrompt("");
@@ -444,10 +451,14 @@ export function AiAssistant({
     if (busy || !visible || !host || !target || !prompt.trim()) return;
     let context: TerminalContext;
     try {
-      context = capture();
+      context = diagnosisContext(capture());
     } catch (error) {
       setError(errorMessage(error));
       return;
+    }
+    if (previewDetails.current?.open) {
+      setPreview(context);
+      setPreviewError("");
     }
     const controller = new AbortController();
     diagnosis.current = controller;
@@ -497,8 +508,8 @@ export function AiAssistant({
             hostIp: host.address,
             prompt: `${goal}\n只读策略：${readOnlyCommandPolicy}\n已执行步骤：${JSON.stringify(history).slice(-10000)}`,
             recentOutput: context.recentOutput,
-            selectedText: "",
-            currentCommand: "",
+            selectedText: context.selectedText,
+            currentCommand: context.currentCommand,
             cwd: context.cwd,
           },
           channel,
@@ -609,46 +620,45 @@ export function AiAssistant({
         <Button
           variant="ghost"
           size="icon-xs"
-          title="预览本次上下文"
-          aria-label="预览 AI 上下文"
-          disabled={mode === "chat"}
-          onClick={refreshPreview}
-        >
-          <RefreshCw />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
           aria-label="关闭 AI 面板"
           onClick={onClose}
         >
           <X />
         </Button>
       </header>
-      {preview && mode !== "chat" ? (
-        <details className="ai-context-preview">
+      {mode !== "chat" ? (
+        <details
+          className="ai-context-preview"
+          ref={previewDetails}
+          onToggle={(event) => {
+            if (event.currentTarget.open) refreshPreview();
+            else {
+              setPreview(null);
+              setPreviewError("");
+            }
+          }}
+        >
           <summary>
             上下文预览 · {mode === "custom" && contextScope === "none"
               ? "不带终端"
-              : preview.selectedText
-                ? "选区与最近输出"
-                : "最近输出"}
+              : "当前快照"}
           </summary>
-          <pre>
+          <p>
             {mode === "custom" && contextScope === "none"
-              ? "本次不附带终端内容"
-              : null}
-            {preview.currentCommand
-              ? `当前命令：${preview.currentCommand}\n\n`
-              : ""}
-            {preview.selectedText ? `选中文本：\n${preview.selectedText}\n\n` : ""}
-            {preview.recentOutput ? `最近输出：\n${preview.recentOutput}` : ""}
-            {!(mode === "custom" && contextScope === "none") &&
-            !preview.selectedText &&
-            !preview.recentOutput
-              ? "暂无终端输出"
-              : ""}
-          </pre>
+              ? "发送时不附带终端内容。"
+              : "发送时会重新采集终端内容。"}
+          </p>
+          {previewError ? <p role="alert">{previewError}</p> : preview && !(mode === "custom" && contextScope === "none") ? (
+            <pre>
+              {preview.cwd ? `当前目录：${preview.cwd}\n\n` : ""}
+              {preview.currentCommand ? `当前命令：${preview.currentCommand}\n\n` : ""}
+              {preview.selectedText ? `选中文本：\n${preview.selectedText}\n\n` : ""}
+              {preview.recentOutput ? `最近输出：\n${preview.recentOutput}` : ""}
+              {!preview.selectedText && !preview.recentOutput && !preview.currentCommand && !preview.cwd
+                ? "暂无终端输出"
+                : ""}
+            </pre>
+          ) : null}
         </details>
       ) : null}
       <div className="ai-conversation">
@@ -899,8 +909,10 @@ export function AiAssistant({
                 value={mode}
                 onChange={(value) => {
                   if (actions.some((action) => action.value === value)) {
+                    if (previewDetails.current) previewDetails.current.open = false;
                     setMode(value as AiAction);
                     setPreview(null);
+                    setPreviewError("");
                   }
                 }}
                 options={actions.filter((action) => host || action.value === "chat")}
