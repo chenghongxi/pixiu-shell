@@ -56,20 +56,24 @@ pub(crate) async fn preferences_save(
 }
 
 #[tauri::command]
-pub(crate) async fn ai_key_configured() -> CommandResult<bool> {
-    tokio::task::spawn_blocking(crate::credentials::ai_key_configured)
+pub(crate) async fn ai_key_configured(gateway_id: Uuid) -> CommandResult<bool> {
+    tokio::task::spawn_blocking(move || crate::credentials::ai_key_configured(gateway_id))
         .await
         .map_err(error)?
         .map_err(error)
 }
 
 #[tauri::command]
-pub(crate) async fn ai_key_save(api_key: String, clear: Option<bool>) -> CommandResult<()> {
+pub(crate) async fn ai_key_save(
+    gateway_id: Uuid,
+    api_key: String,
+    clear: Option<bool>,
+) -> CommandResult<()> {
     tokio::task::spawn_blocking(move || {
         if clear == Some(true) {
-            crate::credentials::delete_ai_key()
+            crate::credentials::delete_ai_key(gateway_id)
         } else {
-            crate::credentials::save_ai_key(&api_key)
+            crate::credentials::save_ai_key(gateway_id, &api_key)
         }
     })
     .await

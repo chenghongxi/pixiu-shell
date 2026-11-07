@@ -16,6 +16,7 @@ export function Choice({
   triggerClassName,
   contentClassName,
   contentPosition,
+  displayValue,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -26,6 +27,7 @@ export function Choice({
   triggerClassName?: string;
   contentClassName?: string;
   contentPosition?: "item-aligned" | "popper";
+  displayValue?: string;
 }) {
   return (
     <Select disabled={disabled} value={value} onValueChange={onChange}>
@@ -33,7 +35,7 @@ export function Choice({
         aria-label={label}
         className={["w-full", triggerClassName].filter(Boolean).join(" ")}
       >
-        <SelectValue placeholder={placeholder} />
+        <SelectValue placeholder={placeholder}>{displayValue || undefined}</SelectValue>
       </SelectTrigger>
       <SelectContent className={contentClassName} position={contentPosition}>
         <SelectGroup>

@@ -255,6 +255,12 @@ export interface LockStatus {
   configured: boolean;
   locked: boolean;
 }
+export interface AiGateway {
+  id: string;
+  name: string;
+  baseUrl: string;
+  model: string;
+}
 export interface Preferences {
   shortcuts: Record<string, string>;
   uploadCommand: string;
@@ -271,8 +277,11 @@ export interface Preferences {
   mode: Mode;
   sshEngine: "builtin" | "system";
   platformAddress: string;
+  aiName: string;
   aiBaseUrl: string;
   aiModel: string;
+  aiGateways: AiGateway[];
+  activeAiGatewayId: string | null;
 }
 export const defaultPreferences: Preferences = {
   shortcuts: {},
@@ -289,8 +298,11 @@ export const defaultPreferences: Preferences = {
   mode: "local",
   sshEngine: "builtin",
   platformAddress: "",
+  aiName: "",
   aiBaseUrl: "",
   aiModel: "",
+  aiGateways: [],
+  activeAiGatewayId: null,
 };
 export interface FileItem {
   name: string;

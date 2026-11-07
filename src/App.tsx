@@ -18,7 +18,6 @@ import {
   LockKeyhole,
   FileCode2,
   ListChecks,
-  Sparkles,
   Copy,
   Columns2,
   Rows2,
@@ -75,7 +74,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Toaster } from "@/components/ui/sonner";
 import { ObjectStorageFolderIcon } from "@/components/ObjectStorageFolderIcon";
-import { MonitorIcon } from "@/components/MonitorIcon";
+import { AssistantIcon, MonitorIcon } from "@/components/MonitorIcon";
 import { HostEditor } from "@/components/HostEditor";
 import { Choice } from "@/components/Choice";
 import { PlatformLogin } from "@/components/PlatformLogin";
@@ -843,6 +842,20 @@ export default function App() {
   function patchPreferences(patch: Partial<Preferences>) {
     return savePreferences({ ...prefsRef.current, ...patch });
   }
+  function selectAiModel(gatewayId: string, model: string): Promise<void> {
+    const current = prefsRef.current;
+    if (!model.trim()) {
+      return Promise.reject(new Error("请选择有效的模型"));
+    }
+    if (current.activeAiGatewayId !== gatewayId || !current.aiGateways.some((gateway) => gateway.id === gatewayId)) {
+      return Promise.reject(new Error("当前网关已变更，请重新选择模型"));
+    }
+    return patchPreferences({
+      aiGateways: current.aiGateways.map((gateway) =>
+        gateway.id === gatewayId ? { ...gateway, model } : gateway,
+      ),
+    });
+  }
   function settings(tab = "appearance") {
     setSettingsTab(tab === "hosts" ? "appearance" : tab);
     setView("settings");
@@ -1580,7 +1593,7 @@ export default function App() {
                       data-active={aiOpen}
                       onClick={() => setAiOpen((value) => !value)}
                     >
-                      <Sparkles className="size-3.5" />
+                      <AssistantIcon className="size-3.5" />
                     </Button>
                     <Button
                       size="icon-sm"
@@ -2830,6 +2843,8 @@ export default function App() {
                   >
                     <AiAssistant
                       key={`chat:${user?.username ?? ""}`}
+                      preferences={preferences}
+                      onSelectModel={selectAiModel}
                       visible={
                         aiOpen &&
                         mode === "platform" &&
@@ -2845,6 +2860,8 @@ export default function App() {
                       .map((session) => (
                         <AiAssistant
                           key={session.id}
+                          preferences={preferences}
+                          onSelectModel={selectAiModel}
                           host={session.host}
                           target={session.target}
                           visible={

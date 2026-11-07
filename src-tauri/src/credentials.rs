@@ -54,39 +54,43 @@ pub(crate) fn delete_identity_passphrase(id: Uuid) -> Result<()> {
     }
 }
 
-fn ai_entry() -> Result<keyring::Entry> {
-    keyring::Entry::new(crate::auth_store::AI_SERVICE, crate::auth_store::AI_ACCOUNT)
-        .context("无法访问 AI 系统凭据")
+fn ai_entry(gateway_id: Uuid) -> Result<keyring::Entry> {
+    let account = if gateway_id.is_nil() {
+        crate::auth_store::AI_ACCOUNT.to_owned()
+    } else {
+        format!("gateway:{gateway_id}")
+    };
+    keyring::Entry::new(crate::auth_store::AI_SERVICE, &account).context("无法访问 AI 系统凭据")
 }
 
-pub(crate) fn ai_key_configured() -> Result<bool> {
-    match ai_entry()?.get_password() {
+pub(crate) fn ai_key_configured(gateway_id: Uuid) -> Result<bool> {
+    match ai_entry(gateway_id)?.get_password() {
         Ok(value) => Ok(!value.is_empty()),
         Err(keyring::Error::NoEntry) => Ok(false),
         Err(error) => Err(error).context("无法读取 AI 系统凭据"),
     }
 }
 
-pub(crate) fn read_ai_key() -> Result<Zeroizing<String>> {
-    match ai_entry()?.get_password() {
+pub(crate) fn read_ai_key(gateway_id: Uuid) -> Result<Zeroizing<String>> {
+    match ai_entry(gateway_id)?.get_password() {
         Ok(value) if !value.is_empty() => Ok(Zeroizing::new(value)),
         Ok(_) | Err(keyring::Error::NoEntry) => anyhow::bail!("请先在设置 > AI 中配置 API Key"),
         Err(error) => Err(error).context("无法读取 AI 系统凭据"),
     }
 }
 
-pub(crate) fn save_ai_key(value: &str) -> Result<()> {
+pub(crate) fn save_ai_key(gateway_id: Uuid, value: &str) -> Result<()> {
     ensure!(
         !value.is_empty() && value.len() <= 8192 && !value.contains(['\0', '\n', '\r']),
         "AI API Key 不能为空、过长或含换行符"
     );
-    ai_entry()?
+    ai_entry(gateway_id)?
         .set_password(value)
         .context("保存 AI API Key 失败")
 }
 
-pub(crate) fn delete_ai_key() -> Result<()> {
-    match ai_entry()?.delete_credential() {
+pub(crate) fn delete_ai_key(gateway_id: Uuid) -> Result<()> {
+    match ai_entry(gateway_id)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(error).context("删除 AI API Key 失败"),
     }

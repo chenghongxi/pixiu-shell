@@ -17,113 +17,62 @@ export function parseDecision(raw: string): Decision {
     done: value.done,
     reason: String(value.reason ?? ""),
     conclusion: String(value.conclusion ?? ""),
-    commands: (value.commands ?? [])
+    commands: (Array.isArray(value.commands) ? value.commands : [])
       .filter((x: unknown): x is string => typeof x === "string")
+      .map((command: string) => {
+        const trimmed = command.trim();
+        const fenced = trimmed.match(/^```(?:bash|sh|shell)?[ \t]*\r?\n([^\r\n]+)\r?\n```$/i);
+        return fenced ? fenced[1].trim() : trimmed;
+      })
       .slice(0, 3),
   };
 }
-// Automatic collection only supports a small, non-mutating command grammar.
-// Validate each simple pipeline stage; command substitution and redirections stay blocked.
+export function hasDiagnosticPrompt(raw: string): boolean {
+  /* oxlint-disable eslint/no-control-regex */
+  const text = raw
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\r\n?/g, "\n");
+  /* oxlint-enable eslint/no-control-regex */
+  const line = text.slice(text.lastIndexOf("\n") + 1).trimEnd();
+  return /(?:^|\s)[\w.-]+@[\w.-]+:\s*(?:\/|~)[^\s]*?[#$%]\s*$/.test(line) ||
+    /(?:^|\s)(?:\/|~)[^\s]*?\s*[#$%]\s*$/.test(line) ||
+    /(?:^|\s)(?:➜|❯)\s+[~/.][^\s]*\s*$/u.test(line);
+}
+// Keep this text beside the checker. The diagnose prompt is the only copy the model sees.
+export const readOnlyCommandPolicy =
+  "只允许这些只读命令：hostname、whoami、uptime、uname 加可选的 -[asnrvmo]、df 加可选的 -[hTi]、free 加可选的 -[hbmkg]、lsblk 加可选的 -[abdfilmnoPrst]、ps aux、ps -ef、ss 加可选的 -[tulnpanroes46]、ip 可选 -br 再加 addr、address、link 或 route 以及可选的 show、systemctl is-active 或 is-failed 加服务名、systemctl status --no-pager 加服务名、journalctl --no-pager -n 1到100 -u 加服务名、docker ps 或 docker container ls 可选 -a 或 --all、docker stats --no-stream、grep 可选 -[iv] 加一个不含空格的词、head 或 tail 可选 -n 1到100、wc -l、sort、uniq。可以用 |、&&、||、; 组合，最多 19 段。只允许重定向 2>&1、2>/dev/null、>/dev/null，且重定向前后有空格。不要使用引号、变量、通配符、括号、反斜杠或其他重定向。";
 export function isAutomaticReadOnly(value: string): boolean {
-  if (
-    !value ||
-    value.length > 1000 ||
-    /[;&`$<>\\\r\n()]/.test(value) ||
-    /\b(?:-exec|-delete|-ok|-i|--interactive|--remove)\b/.test(value)
-  )
+  if (!value || value.length > 2000 || /[\r\n'"`$\\(){}[\]*?!#]/.test(value))
     return false;
-  const allowed = new Set([
-    "hostname",
-    "whoami",
-    "uname",
-    "uptime",
-    "df",
-    "du",
-    "free",
-    "ls",
-    "lsblk",
-    "ps",
-    "ss",
-    "vmstat",
-    "iostat",
-    "ip",
-    "systemctl",
-    "journalctl",
-    "cat",
-    "grep",
-    "head",
-    "tail",
-    "sort",
-    "uniq",
-    "wc",
-    "mount",
-    "lsof",
-    "docker",
-    "podman",
-  ]);
-  return value
-    .split("|")
-    .map((part) => part.trim())
-    .every((part) => {
-      const words = part.split(/\s+/);
-      const program = words[0];
-      if (!allowed.has(program)) return false;
-      if (program === "hostname" || program === "whoami")
-        return words.length === 1;
-      if (program === "systemctl")
-        return ["status", "is-active", "is-failed", "list-units"].includes(
-          words[1],
-        );
-      if (program === "journalctl")
-        return (
-          words.includes("--no-pager") &&
-          words.some((x) => x === "-n" || x.startsWith("--lines=")) &&
-          !words.some(
-            (x) =>
-              /vacuum|rotate|flush|sync|follow|setup|update/.test(x) ||
-              x === "-f",
-          )
-        );
-      if (program === "ip")
-        return /^ip (?:-(?:br|o|4|6) )?(?:(?:addr|address|link)(?: show)?(?: dev [a-zA-Z0-9_.-]+)?|route(?: show| get [a-zA-Z0-9.:]+)?)$/.test(
-          part,
-        );
-      if (program === "ss")
-        return words.slice(1).every((word) => /^-[tulnpanroes46]+$/.test(word));
-      if (program === "ps")
-        return words
-          .slice(1)
-          .every(
-            (word) =>
-              /^-[a-zA-Z0-9,]+$/.test(word) ||
-              /^(?:--no-headers|--forest)$/.test(word) ||
-              /^--sort=-?[a-zA-Z%_]+$/.test(word) ||
-              /^[a-zA-Z_%]+(?:,[a-zA-Z_%]+)*$/.test(word),
-          );
-      if (program === "docker" || program === "podman")
-        return words
-          .slice(1)
-          .every(
-            (word) =>
-              /^(?:ps|images|inspect|info|version|stats|top)$/.test(word) ||
-              /^--(?:all|no-trunc|filter|format|quiet|latest|size)(?:=.*)?$/.test(
-                word,
-              ) ||
-              /^-[-a-zA-Z0-9]+$/.test(word) ||
-              /^[a-zA-Z0-9_.:/=-]+$/.test(word),
-          );
-      if (["head", "tail", "grep", "sort", "uniq", "wc"].includes(program))
-        return words
-          .slice(1)
-          .every(
-            (word) =>
-              /^-[a-zA-Z]+$/.test(word) ||
-              /^--[a-z-]+(?:=[a-zA-Z0-9_.%-]+)?$/.test(word) ||
-              /^\d+$/.test(word) ||
-              /^[a-zA-Z0-9_.%/-]+$/.test(word),
-          );
-      return true;
-    });
+  // Only allow output to be discarded or stderr to be merged into stdout.
+  const stripped = value.replace(/(?:^|\s)(?:2>&1|2?>\s*\/dev\/null)(?=\s|$)/g, " ");
+  if (/[<>]/.test(stripped)) return false;
+  const parts = stripped.split(/(\|\||&&|[|;])/);
+  if (parts.length > 19 || parts.some((part) => !part.trim())) return false;
+  const commands = parts.filter((_, index) => index % 2 === 0);
+  const allowed = [
+    /^(?:hostname|whoami|uptime)$/,
+    /^uname(?: -[asnrvmo]+)?$/,
+    /^df(?: -[hTi]+)?$/,
+    /^free(?: -[hbmkg]+)?$/,
+    /^lsblk(?: -[abdfilmnoPrst]+)?$/,
+    /^ps (?:aux|-ef)$/,
+    /^ss(?: -[tulnpanroes46]+)?$/,
+    /^ip (?:-br )?(?:addr|address|link|route)(?: show)?$/,
+    /^systemctl (?:is-active|is-failed) [A-Za-z0-9_.@-]+$/,
+    /^systemctl status --no-pager [A-Za-z0-9_.@-]+$/,
+    /^journalctl --no-pager -n (?:[1-9]|[1-9][0-9]|100) -u [A-Za-z0-9_.@-]+$/,
+    /^docker (?:ps|container ls)(?: -a| --all)?$/,
+    /^docker stats --no-stream$/,
+    /^grep(?: -[iv]+)? [A-Za-z0-9_.:/@-][A-Za-z0-9_.:/@-]*$/,
+    /^(?:head|tail)(?: -n (?:[1-9]|[1-9][0-9]|100))?$/,
+    /^wc -l$/,
+    /^(?:sort|uniq)$/,
+  ];
+  return commands.every((command) =>
+    allowed.some((pattern) => pattern.test(command.trim().replace(/\s+/g, " "))),
+  );
 }
 // Strip ANSI on the assembled stream, not individual transport chunks.
 export function cleanDiagnosticOutput(raw: string, command: string): string {

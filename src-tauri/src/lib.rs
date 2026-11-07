@@ -514,6 +514,7 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 screen_lock::screen_unlock,
                 screen_lock::lock_configure,
                 ai::ai_chat,
+                ai::ai_models,
                 ai::ai_cancel,
                 commands::preferences_load,
                 commands::preferences_save,

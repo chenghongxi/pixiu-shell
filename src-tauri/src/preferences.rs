@@ -1,12 +1,22 @@
 use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub(crate) const TERMINAL_THEME: &str = "pixiu-shell";
 // The window is transparent; lower values blend the whole surface into the desktop.
 pub(crate) const MIN_WINDOW_OPACITY: u8 = 20;
 // Stored in preferences written by the previous TShell-branded build.
 const LEGACY_TERMINAL_THEME: &str = "tshell";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AiGateway {
+    pub id: Uuid,
+    pub name: String,
+    pub base_url: String,
+    pub model: String,
+}
 
 // Unknown keys are ignored: a stored blob written by a newer build must not
 // keep the desktop client from starting.
@@ -29,8 +39,11 @@ pub(crate) struct Preferences {
     /// Escape hatch: fall back to the system OpenSSH client for every host.
     pub ssh_engine: String,
     pub platform_address: String,
+    pub ai_name: String,
     pub ai_base_url: String,
     pub ai_model: String,
+    pub ai_gateways: Vec<AiGateway>,
+    pub active_ai_gateway_id: Option<Uuid>,
 }
 
 impl Default for Preferences {
@@ -50,8 +63,11 @@ impl Default for Preferences {
             mode: "local".into(),
             ssh_engine: "builtin".into(),
             platform_address: String::new(),
+            ai_name: String::new(),
             ai_base_url: String::new(),
             ai_model: String::new(),
+            ai_gateways: Vec::new(),
+            active_ai_gateway_id: None,
         }
     }
 }
@@ -147,7 +163,10 @@ impl Preferences {
             crate::platform::normalize_base(&self.platform_address)?;
         }
         ensure!(
-            self.ai_base_url.len() <= 2048 && self.ai_model.len() <= 256,
+            self.ai_name.len() <= 256
+                && !self.ai_name.chars().any(char::is_control)
+                && self.ai_base_url.len() <= 2048
+                && self.ai_model.len() <= 256,
             "AI 配置过长"
         );
         if !self.ai_base_url.is_empty() {
@@ -157,6 +176,27 @@ impl Preferences {
                 "AI 网关地址无效"
             );
         }
+        ensure!(self.ai_gateways.len() <= 100, "AI 网关数量过多");
+        let mut ids = std::collections::HashSet::new();
+        for gateway in &self.ai_gateways {
+            ensure!(
+                ids.insert(gateway.id)
+                    && gateway.name.len() <= 256
+                    && !gateway.name.chars().any(char::is_control)
+                    && gateway.base_url.len() <= 2048
+                    && gateway.model.len() <= 256,
+                "AI 网关配置无效"
+            );
+            let url = url::Url::parse(&gateway.base_url)?;
+            ensure!(
+                matches!(url.scheme(), "https" | "http") && url.host().is_some(),
+                "AI 网关地址无效"
+            );
+        }
+        ensure!(
+            self.active_ai_gateway_id.is_none_or(|id| ids.contains(&id)),
+            "当前 AI 网关不存在"
+        );
         Ok(())
     }
 }
@@ -182,6 +222,15 @@ pub(crate) fn load(db: &Connection) -> Result<Preferences> {
         .unwrap_or(prefs.platform_address);
     if prefs.terminal_theme == LEGACY_TERMINAL_THEME {
         prefs.terminal_theme = TERMINAL_THEME.into();
+    }
+    if prefs.ai_gateways.is_empty() && !prefs.ai_base_url.is_empty() {
+        prefs.ai_gateways.push(AiGateway {
+            id: Uuid::nil(),
+            name: prefs.ai_name.clone(),
+            base_url: prefs.ai_base_url.clone(),
+            model: prefs.ai_model.clone(),
+        });
+        prefs.active_ai_gateway_id = Some(Uuid::nil());
     }
     prefs.validate()?;
     Ok(prefs)

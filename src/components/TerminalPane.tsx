@@ -6,7 +6,7 @@ import {
   DialogDescription,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
-import { isAutomaticReadOnly, cleanDiagnosticOutput } from "@/lib/diagnosis";
+import { isAutomaticReadOnly, cleanDiagnosticOutput, hasDiagnosticPrompt } from "@/lib/diagnosis";
 import {
   cleanTerminalTitle,
   visibleShellCommand,
@@ -346,12 +346,12 @@ export function TerminalPane({
       lastCommand.current = commandText;
     },
     async executeAndCapture(commandText, signal) {
-      if (target.mode !== "platform")
-        throw new Error("自动排查需要已连接的平台 SSH 终端");
+      if (target.mode === "shell")
+        throw new Error("自动排查需要已连接的 SSH 终端");
       if (!id.current || statusRef.current !== "connected") {
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(
-            () => reject(new Error("平台 SSH 终端仍在连接，请稍后重试")),
+            () => reject(new Error("SSH 终端仍在连接，请稍后重试")),
             5000,
           );
           readyWaiters.current.push(() => {
@@ -370,13 +370,15 @@ export function TerminalPane({
       }
       const sessionId = id.current;
       if (!sessionId || statusRef.current !== "connected")
-        throw new Error("自动排查需要已连接的平台 SSH 终端");
+        throw new Error("自动排查需要已连接的 SSH 终端");
       if (!isAutomaticReadOnly(commandText))
         throw new Error("该命令不符合自动排查的只读规则");
       if (inputBuffer.current.trim() || commandCapture.current)
         throw new Error("终端存在未完成的输入或排查命令，请等待完成");
       if (terminal.current?.buffer.active.type !== "normal")
         throw new Error("请退出交互式程序后再自动排查");
+      if (!terminal.current || !visibleShellPrompt(terminal.current))
+        throw new Error("无法确认终端处于空闲的 Shell 提示符，请等待命令结束后重试");
       signal?.throwIfAborted();
       const capture = {
         text: "",
@@ -409,8 +411,11 @@ export function TerminalPane({
           // Match Web's bounded output-stability capture, using only new stream data.
           if (
             capture.text &&
+            hasDiagnosticPrompt(capture.text) &&
             Date.now() - started >= 1200 &&
-            Date.now() - capture.updatedAt >= 900
+            Date.now() - capture.updatedAt >= 900 &&
+            terminal.current &&
+            visibleShellPrompt(terminal.current)
           )
             return cleanDiagnosticOutput(
               capture.text + capture.decoder.decode(),
@@ -730,6 +735,10 @@ export function TerminalPane({
         });
     }
     const onData = instance.onData((data) => {
+      if (commandCapture.current) {
+        toast.info("自动排查采集中，请等待或在 AI 面板中停止", { id: "diagnosis-input" });
+        return;
+      }
       if (
         target.mode !== "shell" &&
         data === "\r" &&

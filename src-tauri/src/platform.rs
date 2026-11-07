@@ -380,17 +380,6 @@ impl Platform {
         Ok(request)
     }
 
-    pub(crate) async fn agent_client(&mut self) -> Result<crate::ai::AgentClient> {
-        self.refresh().await?;
-        // An independent native request owns credentials while streaming/cancelling;
-        // the platform mutex stays available to SSH, login and file operations.
-        Ok(crate::ai::AgentClient::new(
-            self.client.clone(),
-            self.base.as_ref().context("未配置平台")?.clone(),
-            self.token.as_deref().context("请先登录平台")?.to_owned(),
-        ))
-    }
-
     pub async fn file_request(
         &mut self,
         host: Uuid,

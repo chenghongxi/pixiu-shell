@@ -1,18 +1,45 @@
 export type AiAction =
-  | "recent_output"
-  | "diagnose_error"
-  | "current_command"
-  | "generate_command"
-  | "analyze_selection"
   | "custom"
   | "chat"
   | "diagnose";
+export type ContextScope = "selection" | "recent" | "none";
 export interface TerminalContext {
   terminalId: string;
   recentOutput: string;
   selectedText: string;
   currentCommand: string;
   cwd: string;
+}
+export function scopeTerminalContext(
+  context: TerminalContext,
+  scope: ContextScope,
+): TerminalContext {
+  if (scope === "none") {
+    return {
+      ...context,
+      recentOutput: "",
+      selectedText: "",
+      currentCommand: "",
+      cwd: "",
+    };
+  }
+  if (scope === "recent") return { ...context, selectedText: "" };
+  return context;
+}
+export function recentDialogue(
+  messages: { role: "user" | "assistant"; content: string; action?: AiAction }[],
+  action: AiAction,
+): string {
+  if (action === "diagnose") return "";
+  return messages
+    .filter((message) => message.action === action && message.content.trim())
+    .slice(-6)
+    .map((message) => {
+      const speaker = message.role === "user" ? "用户" : "助手";
+      return `${speaker}：${redactContext(message.content.trim()).slice(0, 800)}`;
+    })
+    .join("\n\n")
+    .slice(-4000);
 }
 export interface TerminalHandle {
   focus: () => void;

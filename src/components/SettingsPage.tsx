@@ -11,16 +11,20 @@ import {
   CardFooter,
 } from "./ui/card";
 import { PlatformResources } from "./PlatformResources";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Check,
+  CircleCheck,
   Database,
   Keyboard,
   ShieldCheck,
   Monitor,
   Palette,
+  Pencil,
   Building2,
+  RefreshCw,
   Sparkles,
+  Trash2,
   KeyRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -37,10 +41,20 @@ import { Slider } from "@/components/ui/slider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { IdentityManager } from "./IdentityManager";
 import { Choice } from "./Choice";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { applyWindowOpacity, terminalThemes } from "@/lib/themes";
 import {
   command,
   errorMessage,
+  type AiGateway,
   type Preferences,
 } from "@/lib/api";
 
@@ -72,8 +86,6 @@ export function SettingsPage({
   const [draft, setDraft] = useState(preferences);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [aiKeyConfigured, setAiKeyConfigured] = useState(false);
   useEffect(() => {
     // Native bootstrap and global theme controls can update saved preferences.
     // oxlint-disable-next-line react/set-state-in-effect
@@ -89,11 +101,6 @@ export function SettingsPage({
         preferences.windowOpacity ?? 100,
       );
   }, [draft.windowOpacity, preferences.windowOpacity]);
-  useEffect(() => {
-    void command<boolean>("ai_key_configured")
-      .then(setAiKeyConfigured)
-      .catch((error) => setError(errorMessage(error)));
-  }, []);
   const scheme = terminalThemes[draft.terminalTheme] ?? terminalThemes["pixiu-shell"];
   function update<K extends keyof Preferences>(key: K, value: Preferences[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -107,45 +114,6 @@ export function SettingsPage({
       if (conflict) throw new Error(conflict);
       await onSave({ ...draft, platformAddress: draft.platformAddress.trim() });
       toast.success("配置已保存，刷新和重启后仍然有效");
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function saveAi(event: FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    setError("");
-    try {
-      if (!draft.aiBaseUrl.trim() || !draft.aiModel.trim())
-        throw new Error("请填写 OpenAI 兼容网关地址和模型名称");
-      if (!aiKeyConfigured && !apiKey.trim())
-        throw new Error("请填写 API Key；密钥只会保存到系统凭据库");
-      await onSave({
-        ...draft,
-        aiBaseUrl: draft.aiBaseUrl.trim().replace(/\/+$/, ""),
-        aiModel: draft.aiModel.trim(),
-      });
-      if (apiKey.trim()) {
-        await command("ai_key_save", { apiKey: apiKey.trim() });
-        setApiKey("");
-        setAiKeyConfigured(true);
-      }
-      toast.success("AI 配置已保存");
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function clearAiKey() {
-    setSaving(true);
-    setError("");
-    try {
-      await command("ai_key_save", { apiKey: "", clear: true });
-      setAiKeyConfigured(false);
-      toast.success("已清除本机 AI API Key");
     } catch (error) {
       setError(errorMessage(error));
     } finally {
@@ -225,96 +193,7 @@ export function SettingsPage({
             <IdentityManager />
           </TabsContent>
           <TabsContent value="ai">
-            <form onSubmit={saveAi} className="settings-form">
-              <div className="settings-section">
-                <h2>离线 SSH AI</h2>
-                <p>
-                  用于本地主机终端分析。终端上下文会先在本机脱敏；AI
-                  只能分析、建议和填入命令，不能自动执行命令。
-                </p>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="settings-ai-url">
-                      OpenAI 兼容网关地址
-                    </FieldLabel>
-                    <Input
-                      id="settings-ai-url"
-                      type="url"
-                      placeholder="https://api.openai.com/v1"
-                      value={draft.aiBaseUrl}
-                      onChange={(event) =>
-                        update("aiBaseUrl", event.target.value)
-                      }
-                    />
-                    <FieldDescription>
-                      支持 Pixiu AI 网关或任何兼容{" "}
-                      <code>/chat/completions</code> 的地址。
-                    </FieldDescription>
-                  </Field>
-                  <div className="settings-grid">
-                    <Field>
-                      <FieldLabel htmlFor="settings-ai-model">
-                        模型名称
-                      </FieldLabel>
-                      <Input
-                        id="settings-ai-model"
-                        placeholder="gpt-4.1-mini"
-                        value={draft.aiModel}
-                        onChange={(event) =>
-                          update("aiModel", event.target.value)
-                        }
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="settings-ai-key">API Key</FieldLabel>
-                      <Input
-                        id="settings-ai-key"
-                        type="password"
-                        autoComplete="off"
-                        placeholder={
-                          aiKeyConfigured
-                            ? "已保存在系统凭据库；输入可覆盖"
-                            : "输入 API Key"
-                        }
-                        value={apiKey}
-                        onChange={(event) => setApiKey(event.target.value)}
-                      />
-                    </Field>
-                  </div>
-                </FieldGroup>
-                <div className="platform-explanation">
-                  <Sparkles />
-                  <div>
-                    <h3>
-                      {aiKeyConfigured ? "API Key 已配置" : "尚未配置 API Key"}
-                    </h3>
-                    <p>
-                      密钥只保存在当前操作系统的凭据库中，不写入数据库、偏好文件或终端上下文。
-                    </p>
-                  </div>
-                </div>
-              </div>
-              {error ? (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              ) : null}
-              <div className="settings-save">
-                {aiKeyConfigured ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={saving}
-                    onClick={() => void clearAiKey()}
-                  >
-                    清除 API Key
-                  </Button>
-                ) : (
-                  <span />
-                )}
-                <Button disabled={saving}>保存 AI 配置</Button>
-              </div>
-            </form>
+            <AiGatewayManager preferences={preferences} onSave={onSave} />
           </TabsContent>
           <TabsContent value="appearance">
             <form onSubmit={save} className="settings-form">
@@ -652,6 +531,336 @@ export function SettingsPage({
           </TabsContent>
         </div>
       </Tabs>
+    </div>
+  );
+}
+
+function AiGatewayManager({
+  preferences,
+  onSave,
+}: {
+  preferences: Preferences;
+  onSave: (preferences: Preferences) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState<AiGateway | null>(null);
+  const [removing, setRemoving] = useState<AiGateway | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [keyConfigured, setKeyConfigured] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const modelRequest = useRef(0);
+  const modelTimer = useRef<number | undefined>(undefined);
+  const editorVersion = useRef(0);
+  const editorDialog = useRef<HTMLDivElement>(null);
+  const gateways = preferences.aiGateways;
+  const original = editing && gateways.find((gateway) => gateway.id === editing.id);
+  const addressChanged = !!original && original.baseUrl !== editing?.baseUrl.trim().replace(/\/+$/, "");
+
+  function updated(gateways: AiGateway[], activeAiGatewayId: string | null): Preferences {
+    return {
+      ...preferences,
+      aiName: "",
+      aiBaseUrl: "",
+      aiModel: "",
+      aiGateways: gateways,
+      activeAiGatewayId,
+    };
+  }
+
+  async function fetchModels(gateway: AiGateway, key: string, useSavedKey: boolean, silent = false) {
+    window.clearTimeout(modelTimer.current);
+    modelTimer.current = undefined;
+    const request = ++modelRequest.current;
+    setLoadingModels(true);
+    setError("");
+    setModels([]);
+    try {
+      if (!gateway.baseUrl.trim()) throw new Error("请先填写网关地址");
+      if (!key.trim() && !useSavedKey) throw new Error("请先填写此网关的 API Key");
+      const result = await command<string[]>("ai_models", {
+        baseUrl: gateway.baseUrl.trim(),
+        apiKey: key.trim(),
+        gatewayId: useSavedKey ? gateway.id : null,
+      });
+      if (request !== modelRequest.current) return;
+      if (!result.length) throw new Error("网关未返回可用模型");
+      setModels(result);
+      if (!silent) toast.success(`已获取 ${result.length} 个模型`);
+    } catch (value) {
+      if (request === modelRequest.current) setError(errorMessage(value));
+    } finally {
+      if (request === modelRequest.current) setLoadingModels(false);
+    }
+  }
+
+  const editingId = editing?.id;
+  const editingUrl = editing?.baseUrl;
+  const originalUrl = original?.baseUrl;
+  useEffect(() => {
+    if (!editingId || !editingUrl?.trim()) return;
+    const normalizedUrl = editingUrl.trim().replace(/\/+$/, "");
+    const savedKey = !!originalUrl && originalUrl === normalizedUrl && keyConfigured;
+    if (!apiKey.trim() && !savedKey) return;
+    try {
+      const url = new URL(normalizedUrl);
+      if (!["http:", "https:"].includes(url.protocol) || !url.hostname) return;
+    } catch {
+      return;
+    }
+    const requestVersion = modelRequest;
+    const timer = window.setTimeout(() => {
+      void fetchModels(
+        { id: editingId, name: "", baseUrl: normalizedUrl, model: "" },
+        apiKey,
+        savedKey,
+        true,
+      );
+    }, 1000);
+    modelTimer.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      requestVersion.current++;
+    };
+  }, [editingId, editingUrl, originalUrl, apiKey, keyConfigured]);
+
+  function invalidateModels() {
+    window.clearTimeout(modelTimer.current);
+    modelTimer.current = undefined;
+    modelRequest.current++;
+    setLoadingModels(false);
+    setModels([]);
+    setError("");
+  }
+
+  function closeEditor() {
+    editorVersion.current++;
+    invalidateModels();
+    setEditing(null);
+    setApiKey("");
+    setKeyConfigured(false);
+  }
+
+  async function openEditor(gateway?: AiGateway) {
+    const version = ++editorVersion.current;
+    const next = gateway ?? { id: crypto.randomUUID(), name: "", baseUrl: "", model: "" };
+    invalidateModels();
+    setEditing(next);
+    setApiKey("");
+    setKeyConfigured(false);
+    if (!gateway) return;
+    try {
+      const configured = await command<boolean>("ai_key_configured", { gatewayId: gateway.id });
+      if (version === editorVersion.current) setKeyConfigured(configured);
+    } catch (value) {
+      if (version === editorVersion.current) setError(errorMessage(value));
+    }
+  }
+
+  async function saveGateway(event: FormEvent) {
+    event.preventDefault();
+    if (!editing) return;
+    setBusy(true);
+    setError("");
+    let createdKey = false;
+    let updatedKey = false;
+    try {
+      const gateway = {
+        ...editing,
+        name: editing.name.trim(),
+        baseUrl: editing.baseUrl.trim().replace(/\/+$/, ""),
+        model: editing.model.trim(),
+      };
+      if (!gateway.name || !gateway.baseUrl || !gateway.model) throw new Error("请填写名称、网关地址并选择模型");
+      if ((!keyConfigured || addressChanged) && !apiKey.trim()) throw new Error("请填写此网关的 API Key");
+      if (apiKey.trim()) {
+        await command("ai_key_save", { gatewayId: gateway.id, apiKey: apiKey.trim() });
+        createdKey = !original;
+        updatedKey = !!original;
+      }
+      const next = original
+        ? gateways.map((item) => item.id === gateway.id ? gateway : item)
+        : [...gateways, gateway];
+      await onSave(updated(next, preferences.activeAiGatewayId ?? gateway.id));
+      closeEditor();
+      toast.success("AI 网关已保存");
+    } catch (value) {
+      if (createdKey) {
+        try {
+          await command("ai_key_save", { gatewayId: editing.id, apiKey: "", clear: true });
+        } catch {
+          setError(`${errorMessage(value)}；新网关的系统凭据清理失败`);
+          setBusy(false);
+          return;
+        }
+      }
+      setError(updatedKey
+        ? `API Key 已更新，但网关配置保存失败：${errorMessage(value)}`
+        : errorMessage(value));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectGateway(gateway: AiGateway) {
+    if (busy || gateway.id === preferences.activeAiGatewayId) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSave(updated(gateways, gateway.id));
+      toast.success(`已切换至 ${gateway.name || "AI 网关"}`);
+    } catch (value) {
+      toast.error(errorMessage(value));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteGateway() {
+    if (!removing) return;
+    setBusy(true);
+    let keyCleared = false;
+    try {
+      await command("ai_key_save", { gatewayId: removing.id, apiKey: "", clear: true });
+      keyCleared = true;
+      const remaining = gateways.filter((gateway) => gateway.id !== removing.id);
+      const active = preferences.activeAiGatewayId === removing.id
+        ? remaining[0]?.id ?? null
+        : preferences.activeAiGatewayId;
+      await onSave(updated(remaining, active));
+      setRemoving(null);
+      toast.success("AI 网关已删除");
+    } catch (value) {
+      toast.error(keyCleared
+        ? `API Key 已清除，但删除网关配置失败：${errorMessage(value)}`
+        : `删除 AI 网关失败：${errorMessage(value)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="settings-section identity-manager">
+      <div className="identity-manager__heading">
+        <div>
+          <h2>AI 网关</h2>
+          <p>管理独立问答与主机 AI 使用的网关和模型。</p>
+        </div>
+        <div className="identity-manager__actions">
+          <Button className="host-primary-action" variant="outline" size="sm" disabled={busy} onClick={() => void openEditor()}>
+            添加 AI 网关
+          </Button>
+        </div>
+      </div>
+      <div className="identity-list">
+        {gateways.map((gateway) => (
+          <div className="identity-list__row" key={gateway.id}>
+            <Sparkles aria-hidden="true" />
+            <button type="button" className="identity-list__detail ai-gateway-select" disabled={busy}
+              aria-label={`使用 AI 网关 ${gateway.name || "AI 网关"}`}
+              aria-pressed={gateway.id === preferences.activeAiGatewayId}
+              onClick={() => void selectGateway(gateway)}>
+              <strong>{gateway.name || "AI 网关"}</strong>
+              <span>{gateway.model || "未配置模型"}</span>
+              <code title={gateway.baseUrl}>{gateway.baseUrl}</code>
+            </button>
+            <div className="identity-list__actions">
+              {gateway.id === preferences.activeAiGatewayId ? (
+                <span className="ai-gateway-active" role="img" aria-label="使用中" title="使用中">
+                  <CircleCheck aria-hidden="true" />
+                </span>
+              ) : (
+                <Button variant="ghost" size="icon-sm" disabled={busy}
+                  aria-label={`使用 ${gateway.name || "AI 网关"}`} title="切换到此网关"
+                  onClick={() => void selectGateway(gateway)}>
+                  <CircleCheck />
+                </Button>
+              )}
+              <Button variant="ghost" size="icon-sm" disabled={busy} aria-label={`编辑 ${gateway.name || "AI 网关"}`} title="编辑 AI 网关" onClick={() => void openEditor(gateway)}>
+                <Pencil />
+              </Button>
+              <Button variant="ghost" size="icon-sm" disabled={busy} aria-label={`删除 ${gateway.name || "AI 网关"}`} title="删除 AI 网关" onClick={() => setRemoving(gateway)}>
+                <Trash2 />
+              </Button>
+            </div>
+          </div>
+        ))}
+        {!gateways.length ? <p className="identity-list__empty">还没有配置 AI 网关。添加网关和模型后即可使用 AI。</p> : null}
+      </div>
+      <Dialog open={!!editing} onOpenChange={(open) => {
+        if (!open && !busy) closeEditor();
+      }}>
+        <DialogContent
+          ref={editorDialog}
+          className="identity-dialog identity-dialog--key-form ai-settings-dialog"
+          onOpenAutoFocus={(event) => {
+            if (original) {
+              event.preventDefault();
+              editorDialog.current?.focus();
+            }
+          }}
+        >
+          <form onSubmit={saveGateway}>
+            <DialogHeader>
+              <DialogTitle>{original ? "编辑 AI 网关" : "添加 AI 网关"}</DialogTitle>
+              <DialogDescription className="sr-only">配置 OpenAI 兼容网关、模型和 API Key。</DialogDescription>
+            </DialogHeader>
+            <div className="identity-dialog__fields">
+              <label>
+                <span className="identity-dialog__label"><i aria-hidden="true">*</i>名称</span>
+                <Input maxLength={60} placeholder="例如：我的 AI 网关" value={editing?.name ?? ""}
+                  onChange={(event) => setEditing((current) => current && { ...current, name: event.target.value })} />
+              </label>
+              <label>
+                <span className="identity-dialog__label"><i aria-hidden="true">*</i>网关地址</span>
+                <Input type="url" placeholder="https://api.openai.com/v1" value={editing?.baseUrl ?? ""}
+                  onChange={(event) => {
+                    invalidateModels();
+                    setEditing((current) => current && { ...current, baseUrl: event.target.value, model: "" });
+                  }} />
+              </label>
+              <label>
+                <span className="identity-dialog__label"><i aria-hidden="true">*</i>API Key</span>
+                <Input type="password" autoComplete="off"
+                  placeholder={keyConfigured && !addressChanged ? "已保存；输入可覆盖" : "输入 API Key"}
+                  value={apiKey} onChange={(event) => {
+                    invalidateModels();
+                    setApiKey(event.target.value);
+                    setEditing((current) => current && { ...current, model: "" });
+                  }} />
+              </label>
+              <div className="identity-dialog__choice">
+                <span className="identity-dialog__label"><i aria-hidden="true">*</i>模型</span>
+                <div className="identity-dialog__path">
+                  <Choice label="模型" value={editing?.model ?? ""}
+                    onChange={(model) => setEditing((current) => current && { ...current, model })}
+                    options={[...new Set([...(editing?.model ? [editing.model] : []), ...models])].map((model) => ({ value: model, label: model }))}
+                    disabled={loadingModels || (!editing?.model && !models.length)}
+                    placeholder={loadingModels ? "正在获取模型…" : models.length ? "请选择模型" : "填写网关地址和 API Key"}
+                    triggerClassName="identity-dialog__select" contentClassName="identity-dialog__select-content" contentPosition="popper" />
+                  <Button type="button" variant="outline" size="icon-sm" disabled={loadingModels} aria-label="获取模型" title="获取模型"
+                    onClick={() => { if (editing) void fetchModels(editing, apiKey, keyConfigured && !addressChanged); }}>
+                    <RefreshCw className={loadingModels ? "animate-spin" : undefined} />
+                  </Button>
+                </div>
+              </div>
+              {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={busy} onClick={closeEditor}>
+                取消
+              </Button>
+              <Button disabled={busy || loadingModels}>{busy ? "保存中…" : "确定"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <DeleteConfirmDialog open={!!removing} label={`确定要删除 AI 网关“${removing?.name || "AI 网关"}”吗？`}
+        hint="将同时删除保存在系统凭据库中的 API Key。" loading={busy}
+        onOpenChange={(open) => { if (!open) setRemoving(null); }} onConfirm={() => void deleteGateway()}>
+        确定要删除 AI 网关“<strong>{removing?.name || "AI 网关"}</strong>”吗？
+      </DeleteConfirmDialog>
     </div>
   );
 }
