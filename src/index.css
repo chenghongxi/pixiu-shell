@@ -5666,14 +5666,10 @@ body,
 .dark .ai-panel > header button svg {
   color: #aaa;
 }
-/* 工具栏功能图标用中性色，和左侧配置中心按钮（.activity-rail button）保持一致。 */
-.window-actions button[aria-label="主机 AI"] svg,
-.window-actions button[aria-label="文件"] svg {
+.window-actions button svg {
   color: var(--muted-foreground);
 }
-/* 面板打开时和配置中心一样切成主色。 */
-.window-actions button[aria-label="主机 AI"][data-active="true"] svg,
-.window-actions button[aria-label="文件"][data-active="true"] svg {
+.window-actions button[data-active="true"] svg {
   color: var(--primary);
 }
 .script-code-editor > div > span {
