@@ -245,8 +245,19 @@ export function SettingsPage({
           <TabsContent value="ai">
             <div className="settings-section identity-manager ai-management">
               <div className="identity-manager__heading">
-                <h2>AI 管理</h2>
-                <p>管理网关、模型和本机上的会话。</p>
+                <div>
+                  <h2>AI 管理</h2>
+                  <p>管理网关、模型和本机上的会话。</p>
+                </div>
+                {aiTab === "gateways" ? (
+                  <div className="identity-manager__actions">
+                    <Button className="host-primary-action" variant="outline" size="sm" onClick={() => openGatewayEditor.current?.()}>
+                      添加网关
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="identity-manager__actions ai-management__retention" ref={setHistoryToolbar} />
+                )}
               </div>
               <Tabs value={aiTab} onValueChange={setAiTab} className="ai-management-tabs">
                 <div className="ai-management__toolbar">
@@ -254,13 +265,6 @@ export function SettingsPage({
                     <TabsTrigger value="gateways">网关</TabsTrigger>
                     <TabsTrigger value="history">会话</TabsTrigger>
                   </TabsList>
-                  {aiTab === "gateways" ? (
-                    <Button className="host-primary-action" variant="outline" size="sm" onClick={() => openGatewayEditor.current?.()}>
-                      添加网关
-                    </Button>
-                  ) : (
-                    <div className="ai-management__retention" ref={setHistoryToolbar} />
-                  )}
                 </div>
                 <TabsContent value="gateways">
                   <AiGatewayManager preferences={preferences} onSave={onSave} opener={openGatewayEditor} />
@@ -833,11 +837,12 @@ function AiGatewayManager({
               aria-pressed={gateway.id === preferences.activeAiGatewayId}
               title={gateway.baseUrl}
               onClick={() => void selectGateway(gateway)}>
-              <span className="ai-gateway-name">
-                <strong>{gateway.name || "AI 网关"}</strong>
-                {gateway.id === preferences.activeAiGatewayId ? <em className="ai-gateway-live">使用中</em> : null}
-              </span>
-              <span className="ai-gateway-meta">{gateway.model || "未选择模型"} · {gatewayHost(gateway.baseUrl)}</span>
+             <span className="ai-gateway-name">
+               <strong>{gateway.name || "AI 网关"}</strong>
+               {gateway.id === preferences.activeAiGatewayId ? <em className="ai-gateway-live">使用中</em> : null}
+                {!gateway.model ? <em className="ai-gateway-unset">未选模型</em> : null}
+             </span>
+              <span className="ai-gateway-meta">{gateway.model ? `${gateway.model} · ${gatewayHost(gateway.baseUrl)}` : gatewayHost(gateway.baseUrl)}</span>
             </button>
             <div className="identity-list__actions">
               <Button variant="ghost" size="icon-sm" disabled={busy} aria-label={`编辑 ${gateway.name || "AI 网关"}`} title="编辑 AI 网关" onClick={() => void openEditor(gateway)}>

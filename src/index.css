@@ -2603,13 +2603,16 @@
   border-radius: 2px 2px 0 0;
   background: var(--primary);
 }
+.ai-management__toolbar > [data-slot="tabs-list"] [data-slot="tabs-trigger"]::after,
 .shortcut-page__toolbar > [data-slot="tabs-list"] [data-slot="tabs-trigger"]::after {
   right: 12px;
   left: 12px;
 }
-.ai-management__toolbar .host-primary-action[data-slot="button"] {
-  align-self: flex-end;
-  margin: 0 0 8px;
+.ai-management > .identity-manager__heading {
+  align-items: center;
+  margin-bottom: 0;
+  padding: 0;
+  border-bottom: 0;
 }
 .shortcut-page__toolbar-actions {
   display: flex;
@@ -2620,20 +2623,15 @@
 .shortcut-page > [data-slot="alert"] {
   margin-top: 14px;
 }
-.ai-management > .identity-manager__heading {
-  display: block;
-  margin-bottom: 0;
-  padding: 0;
-  border-bottom: 0;
-}
 .ai-management > .identity-manager__heading h2 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
 }
 .ai-management > .identity-manager__heading p {
   margin: 6px 0 0;
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1.6;
 }
 .ai-management .identity-list {
   border-top: 0;
@@ -2665,10 +2663,18 @@
   font-style: normal;
   font-weight: 500;
 }
+.ai-gateway-unset {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+}
 .ai-gateway-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 280px;
 }
 .ai-history-action {
   color: var(--foreground);
@@ -2685,20 +2691,23 @@
 .ai-history-retention--bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  height: 36px;
   margin: 0;
-  color: var(--muted-foreground);
-  font-size: 12px;
 }
 .ai-management__retention {
   display: flex;
   align-items: center;
-  margin-bottom: 8px;
+  height: 36px;
+  margin: 0;
 }
-.ai-history-retention__choice {
-  width: 102px;
+.ai-management__retention .ai-history-retention__choice[data-slot="select-trigger"] {
+  width: 132px;
+  height: 36px;
   flex: 0 0 auto;
-  margin-left: 8px;
+  margin-left: 0;
+  padding: 0 12px 0 15px;
+  border-radius: 4px;
+  font-size: 14px;
 }
 .ai-history-manager .identity-list__detail strong {
   overflow: hidden;

@@ -74,8 +74,8 @@ export function AiHistoryManager({ onContinue, toolbar }: { onContinue: (item: A
     <div className="ai-history-manager">
       {toolbar ? createPortal(
         <div className="ai-history-retention ai-history-retention--bar">
-          <span>保留</span>
           <Choice label="会话保留期限" value={String(days)} disabled={busy}
+            displayValue={`保留 ${days} 天`}
             triggerClassName="host-pagination__size ai-history-retention__choice"
             contentClassName="host-pagination__size-content"
             contentPosition="popper"
