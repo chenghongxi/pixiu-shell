@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   Pencil,
   CircleAlert,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ import {
 } from "@/components/ui/message-scroller";
 import { isAutomaticReadOnly, parseDecision, readOnlyCommandPolicy } from "@/lib/diagnosis";
 import { command, errorMessage, type Host, type Preferences, type Target } from "@/lib/api";
+import { scheduleAiHistory, type AiConversation, type AiHistoryMessage } from "@/lib/ai-history";
 import {
   redactContext,
   suggestedCommand,
@@ -71,13 +73,7 @@ const markdownComponents: Components = {
   ),
 };
 
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  action?: AiAction;
-  createdAt?: string;
-}
+type ChatMessage = AiHistoryMessage;
 const actions: { value: AiAction; label: string }[] = [
   { value: "chat", label: "独立问答" },
   { value: "custom", label: "终端问答" },
@@ -150,6 +146,8 @@ export function AiAssistant({
   onClose,
   preferences,
   onSelectModel,
+  resume,
+  historyScope,
 }: {
   host?: Host;
   target?: Target;
@@ -158,11 +156,16 @@ export function AiAssistant({
   onClose: () => void;
   preferences: Preferences;
   onSelectModel: (gatewayId: string, model: string) => Promise<void>;
+  resume?: AiConversation | null;
+  historyScope: string;
 }) {
   const [mode, setMode] = useState<AiAction>(host ? "custom" : "chat");
   const [contextScope, setContextScope] = useState<ContextScope>("selection");
-  const chatId = useRef(crypto.randomUUID());
+  const chatId = useRef<string>(crypto.randomUUID());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const savedMessages = useRef("[]");
+  const applyingResume = useRef(false);
+  const handledResume = useRef<AiConversation | null>(null);
   const [prompt, setPrompt] = useState("");
   const promptInput = useRef<HTMLTextAreaElement>(null);
   const approvalRun = useRef<HTMLButtonElement>(null);
@@ -187,6 +190,70 @@ export function AiAssistant({
   const suggestion = useRef<AbortController | null>(null);
   const activeRequest = useRef<string | null>(null);
   const mounted = useRef(false);
+  useEffect(() => {
+    if (!resume || handledResume.current === resume) return;
+    handledResume.current = resume;
+    if (busy || activeRequest.current || diagnosis.current) {
+      toast.error("当前 AI 任务正在运行，请先停止后再切换会话");
+      return;
+    }
+    chatId.current = resume.id;
+    savedMessages.current = JSON.stringify(resume.messages);
+    applyingResume.current = true;
+    setMessages(resume.messages);
+    setMode(host ? resume.messages.at(-1)?.action ?? "custom" : "chat");
+    setError("");
+    setStatus("");
+  }, [resume, busy, host]);
+  useEffect(() => {
+    if (applyingResume.current) {
+      applyingResume.current = false;
+      return;
+    }
+    const serialized = JSON.stringify(messages);
+    if (!messages.length || serialized === savedMessages.current) return;
+    savedMessages.current = serialized;
+    const conversationId = chatId.current;
+    const title = messages.find((message) => message.role === "user")?.content.trim().slice(0, 120) || "AI 对话";
+    scheduleAiHistory({
+      id: conversationId,
+      target: target ? { ...target, historyScope, hostAddress: host?.address } : null,
+      hostName: host?.name ?? "",
+      title,
+      messages,
+      updatedAt: 0,
+    }, (error) => {
+      if (chatId.current === conversationId) savedMessages.current = "";
+      toast.error(`保存 AI 会话失败：${errorMessage(error)}`);
+    });
+  }, [messages, host, target, historyScope]);
+  useEffect(() => {
+    const onDeleted = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== chatId.current) return;
+      diagnosis.current?.abort();
+      diagnosis.current = null;
+      suggestion.current?.abort();
+      const requestId = activeRequest.current;
+      activeRequest.current = null;
+      if (requestId) void command("ai_cancel", { requestId }).catch(() => {});
+      setBusy(false);
+      chatId.current = crypto.randomUUID();
+      savedMessages.current = "[]";
+      setMessages([]);
+      setError("");
+    };
+    window.addEventListener("ai-history-deleted", onDeleted);
+    return () => window.removeEventListener("ai-history-deleted", onDeleted);
+  }, []);
+  function newConversation() {
+    if (busy || activeRequest.current || diagnosis.current) return;
+    chatId.current = crypto.randomUUID();
+    savedMessages.current = "[]";
+    setMessages([]);
+    setPrompt("");
+    setError("");
+    setStatus("");
+  }
   function resizeComposer(height: number) {
     const limit = Math.max(150, Math.floor((panelRef.current?.clientHeight ?? 600) * 0.6));
     setComposerHeight(Math.max(150, Math.min(limit, height)));
@@ -462,6 +529,7 @@ export function AiAssistant({
     }
     const controller = new AbortController();
     diagnosis.current = controller;
+    const conversationId = chatId.current;
     const goal = redactContext(prompt.trim()),
       assistantId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
@@ -474,7 +542,7 @@ export function AiAssistant({
       { id: assistantId, role: "assistant", content: "", action: "diagnose" },
     ]);
     const append = (text: string) => {
-      if (mounted.current)
+      if (mounted.current && chatId.current === conversationId)
         setMessages((current) =>
           current.map((message) =>
             message.id === assistantId
@@ -514,6 +582,7 @@ export function AiAssistant({
           },
           channel,
         });
+        if (chatId.current !== conversationId) return;
         activeRequest.current = null;
         controller.signal.throwIfAborted();
         const decision = parseDecision(raw);
@@ -554,15 +623,17 @@ export function AiAssistant({
         }
       }
     } catch (error) {
-      if (mounted.current) {
+      if (mounted.current && chatId.current === conversationId) {
         setStatus(controller.signal.aborted ? "已停止" : "排查结束");
         if (controller.signal.aborted) append("\n\n排查已停止。");
         if (!controller.signal.aborted) setError(errorMessage(error));
       }
     } finally {
-      activeRequest.current = null;
-      diagnosis.current = null;
-      if (mounted.current) setBusy(false);
+      if (diagnosis.current === controller) {
+        activeRequest.current = null;
+        diagnosis.current = null;
+        if (mounted.current) setBusy(false);
+      }
     }
   }
   async function insert(value: string) {
@@ -617,14 +688,15 @@ export function AiAssistant({
           <strong>主机 AI</strong>
           <span>{host?.name ?? "Chat"}</span>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="关闭 AI 面板"
-          onClick={onClose}
-        >
-          <X />
-        </Button>
+        <div className="ai-panel__actions">
+          <Button variant="ghost" size="icon-xs" aria-label="新建 AI 会话"
+            title="新建会话" disabled={busy} onClick={newConversation}>
+            <Plus />
+          </Button>
+          <Button variant="ghost" size="icon-xs" aria-label="关闭 AI 面板" onClick={onClose}>
+            <X />
+          </Button>
+        </div>
       </header>
       {mode !== "chat" ? (
         <details

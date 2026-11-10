@@ -1,6 +1,7 @@
 //! Pixiu Shell desktop boundary: platform credentials stay native; local hosts stay in SQLite.
 
 mod ai;
+mod ai_history;
 mod askpass_bridge;
 mod auth_store;
 mod commands;
@@ -516,6 +517,11 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 ai::ai_chat,
                 ai::ai_models,
                 ai::ai_cancel,
+                ai_history::ai_history_list,
+                ai_history::ai_history_create,
+                ai_history::ai_history_update,
+                ai_history::ai_history_delete,
+                ai_history::ai_history_retention,
                 commands::preferences_load,
                 commands::preferences_save,
                 commands::ai_key_configured,

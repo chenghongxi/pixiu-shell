@@ -79,6 +79,7 @@ import { HostEditor } from "@/components/HostEditor";
 import { Choice } from "@/components/Choice";
 import { PlatformLogin } from "@/components/PlatformLogin";
 import { SettingsPage } from "@/components/SettingsPage";
+import { listAiHistory, type AiConversation } from "@/lib/ai-history";
 import { BatchImportDialog } from "@/components/BatchImportDialog";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { FileManager } from "@/components/FileManager";
@@ -304,6 +305,7 @@ export default function App() {
   const [scriptsVisited, setScriptsVisited] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [aiResume, setAiResume] = useState<{ destination: string; item: AiConversation } | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const terminalHandles = useRef(new Map<string, TerminalHandle>());
   const [fileTarget, setFileTarget] = useState<{
@@ -327,6 +329,13 @@ export default function App() {
   const preferenceQueue = useRef<Promise<void>>(Promise.resolve());
   const prefsRef = useRef(preferences);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("dark");
+  useEffect(() => {
+    if (!desktop || !ready || lockStatus.locked) return;
+    const clean = () => { void listAiHistory().catch((value) => toast.error(`清理 AI 会话失败：${errorMessage(value)}`)); };
+    clean();
+    const timer = window.setInterval(clean, 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [ready, lockStatus.locked]);
   useEffect(() => {
     setHostProfileTab("overview");
   }, [selectedId]);
@@ -982,6 +991,38 @@ export default function App() {
     setView("workspace");
     setActive(session.id);
     revealHost(current);
+  }
+  function aiHistoryScope(session: Session) {
+    return JSON.stringify(session.target.mode === "platform"
+      ? ["platform", preferences.platformAddress, user?.username ?? ""]
+      : ["local", session.host.local?.username ?? ""]);
+  }
+  function continueAiConversation(item: AiConversation) {
+    if (!item.target) {
+      setSelectedId(null);
+      setActive("home");
+      setView("workspace");
+      setAiResume({ destination: "chat", item: { ...item } });
+      setAiOpen(true);
+      return;
+    }
+    const target = item.target;
+    const match = sessions.find((session) =>
+      session.target.mode === target.mode &&
+      session.target.id === target.id &&
+      (session.target.accountId ?? "") === (target.accountId ?? "") &&
+      (session.target.accessPathId ?? "") === (target.accessPathId ?? "") &&
+      (session.target.protocol ?? "") === (target.protocol ?? "") &&
+      session.host.address === target.hostAddress &&
+      aiHistoryScope(session) === target.historyScope
+    );
+    if (!match) {
+      toast.error(`请先使用原账号连接主机 ${item.hostName}，再继续此会话`);
+      return;
+    }
+    activateSession(match);
+    setAiResume({ destination: match.id, item: { ...item } });
+    setAiOpen(true);
   }
   function dropLayoutSessions(ids: string[]) {
     setLayouts((current) =>
@@ -2050,6 +2091,7 @@ export default function App() {
               onSave={savePreferences}
               tab={settingsTab}
               onTab={setSettingsTab}
+              onContinueAi={continueAiConversation}
             />
           </div>
           <div className="scripts-workspace" hidden={view !== "scripts"}>
@@ -2856,10 +2898,10 @@ export default function App() {
                       key={`chat:${user?.username ?? ""}`}
                       preferences={preferences}
                       onSelectModel={selectAiModel}
+                      resume={aiResume?.destination === "chat" ? aiResume.item : null}
+                      historyScope=""
                       visible={
                         aiOpen &&
-                        mode === "platform" &&
-                        !!user &&
                         !activeSession &&
                         view === "workspace"
                       }
@@ -2873,6 +2915,8 @@ export default function App() {
                           key={session.id}
                           preferences={preferences}
                           onSelectModel={selectAiModel}
+                          resume={aiResume?.destination === session.id ? aiResume.item : null}
+                          historyScope={aiHistoryScope(session)}
                           host={session.host}
                           target={session.target}
                           visible={

@@ -149,7 +149,7 @@ impl Tunnel {
 // Initialization can be requested concurrently by several IPC commands. Serialize
 // only migrations; established connections must remain genuine read connections.
 static MIGRATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 
 pub(crate) fn open(path: &Path) -> Result<Connection> {
     let mut connection = Connection::open(path).context("无法打开 Pixiu Shell SQLite 数据库")?;
@@ -176,6 +176,12 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
             group_name TEXT NOT NULL, identity_file TEXT NOT NULL, note TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS ai_conversations (
+            id TEXT PRIMARY KEY, target TEXT, host_name TEXT NOT NULL,
+            title TEXT NOT NULL, messages TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ai_conversations_updated_at ON ai_conversations(updated_at);
         CREATE TABLE IF NOT EXISTS host_groups(name TEXT PRIMARY KEY CHECK(length(name)>0));
         CREATE TABLE IF NOT EXISTS ssh_identities (
             id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, path TEXT NOT NULL UNIQUE,

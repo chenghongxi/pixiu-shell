@@ -11,10 +11,10 @@ import {
   CardFooter,
 } from "./ui/card";
 import { PlatformResources } from "./PlatformResources";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useImperativeHandle, useRef, useState, type FormEvent } from "react";
 import {
   Check,
-  CircleCheck,
+  Bot,
   Database,
   Keyboard,
   ShieldCheck,
@@ -23,7 +23,6 @@ import {
   Pencil,
   Building2,
   RefreshCw,
-  Sparkles,
   Trash2,
   KeyRound,
 } from "lucide-react";
@@ -40,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { IdentityManager } from "./IdentityManager";
+import type { AiConversation } from "@/lib/ai-history";
 import { Choice } from "./Choice";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import {
@@ -58,6 +58,10 @@ import {
   type Preferences,
 } from "@/lib/api";
 
+const AiHistoryManager = lazy(() =>
+  import("./AiHistoryManager").then((module) => ({ default: module.AiHistoryManager })),
+);
+
 export function SettingsPage({
   preferences,
   lockStatus,
@@ -70,6 +74,7 @@ export function SettingsPage({
   onSave,
   tab,
   onTab,
+  onContinueAi,
 }: {
   preferences: Preferences;
   lockStatus: LockStatus;
@@ -82,10 +87,14 @@ export function SettingsPage({
   onSave: (prefs: Preferences) => Promise<void>;
   tab: string;
   onTab: (value: string) => void;
+  onContinueAi: (item: AiConversation) => void;
 }) {
   const [draft, setDraft] = useState(preferences);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [aiTab, setAiTab] = useState("gateways");
+  const [historyToolbar, setHistoryToolbar] = useState<HTMLDivElement | null>(null);
+  const openGatewayEditor = useRef<(() => void) | null>(null);
   useEffect(() => {
     // Native bootstrap and global theme controls can update saved preferences.
     // oxlint-disable-next-line react/set-state-in-effect
@@ -142,8 +151,8 @@ export function SettingsPage({
             运维平台
           </TabsTrigger>
           <TabsTrigger value="ai">
-            <Sparkles />
-            AI
+            <Bot />
+            AI 管理
           </TabsTrigger>
           <TabsTrigger value="shortcuts">
             <Keyboard />
@@ -193,7 +202,35 @@ export function SettingsPage({
             <IdentityManager />
           </TabsContent>
           <TabsContent value="ai">
-            <AiGatewayManager preferences={preferences} onSave={onSave} />
+            <div className="settings-section identity-manager ai-management">
+              <div className="identity-manager__heading">
+                <h2>AI 管理</h2>
+                <p>管理网关、模型和本机上的会话。</p>
+              </div>
+              <Tabs value={aiTab} onValueChange={setAiTab} className="ai-management-tabs">
+                <div className="ai-management__toolbar">
+                  <TabsList variant="line">
+                    <TabsTrigger value="gateways">网关</TabsTrigger>
+                    <TabsTrigger value="history">会话</TabsTrigger>
+                  </TabsList>
+                  {aiTab === "gateways" ? (
+                    <Button className="host-primary-action" variant="outline" size="sm" onClick={() => openGatewayEditor.current?.()}>
+                      添加网关
+                    </Button>
+                  ) : (
+                    <div className="ai-management__retention" ref={setHistoryToolbar} />
+                  )}
+                </div>
+                <TabsContent value="gateways">
+                  <AiGatewayManager preferences={preferences} onSave={onSave} opener={openGatewayEditor} />
+                </TabsContent>
+                <TabsContent value="history">
+                  <Suspense fallback={<p className="identity-list__empty">正在加载会话…</p>}>
+                    <AiHistoryManager onContinue={onContinueAi} toolbar={historyToolbar} />
+                  </Suspense>
+                </TabsContent>
+              </Tabs>
+            </div>
           </TabsContent>
           <TabsContent value="appearance">
             <form onSubmit={save} className="settings-form">
@@ -538,9 +575,11 @@ export function SettingsPage({
 function AiGatewayManager({
   preferences,
   onSave,
+  opener,
 }: {
   preferences: Preferences;
   onSave: (preferences: Preferences) => Promise<void>;
+  opener: { current: (() => void) | null };
 }) {
   const [editing, setEditing] = useState<AiGateway | null>(null);
   const [removing, setRemoving] = useState<AiGateway | null>(null);
@@ -643,6 +682,7 @@ function AiGatewayManager({
   }
 
   async function openEditor(gateway?: AiGateway) {
+    if (busy) return;
     const version = ++editorVersion.current;
     const next = gateway ?? { id: crypto.randomUUID(), name: "", baseUrl: "", model: "" };
     invalidateModels();
@@ -657,6 +697,8 @@ function AiGatewayManager({
       if (version === editorVersion.current) setError(errorMessage(value));
     }
   }
+
+  useImperativeHandle(opener, () => () => { void openEditor(); });
 
   async function saveGateway(event: FormEvent) {
     event.preventDefault();
@@ -741,42 +783,22 @@ function AiGatewayManager({
   }
 
   return (
-    <div className="settings-section identity-manager">
-      <div className="identity-manager__heading">
-        <div>
-          <h2>AI 网关</h2>
-          <p>管理独立问答与主机 AI 使用的网关和模型。</p>
-        </div>
-        <div className="identity-manager__actions">
-          <Button className="host-primary-action" variant="outline" size="sm" disabled={busy} onClick={() => void openEditor()}>
-            添加 AI 网关
-          </Button>
-        </div>
-      </div>
-      <div className="identity-list">
+    <>
+      <div className="identity-list ai-gateway-list">
         {gateways.map((gateway) => (
-          <div className="identity-list__row" key={gateway.id}>
-            <Sparkles aria-hidden="true" />
+          <div className="identity-list__row ai-gateway-row" key={gateway.id}>
             <button type="button" className="identity-list__detail ai-gateway-select" disabled={busy}
               aria-label={`使用 AI 网关 ${gateway.name || "AI 网关"}`}
               aria-pressed={gateway.id === preferences.activeAiGatewayId}
+              title={gateway.baseUrl}
               onClick={() => void selectGateway(gateway)}>
-              <strong>{gateway.name || "AI 网关"}</strong>
-              <span>{gateway.model || "未配置模型"}</span>
-              <code title={gateway.baseUrl}>{gateway.baseUrl}</code>
+              <span className="ai-gateway-name">
+                <strong>{gateway.name || "AI 网关"}</strong>
+                {gateway.id === preferences.activeAiGatewayId ? <em className="ai-gateway-live">使用中</em> : null}
+              </span>
+              <span className="ai-gateway-meta">{gateway.model || "未选择模型"} · {gatewayHost(gateway.baseUrl)}</span>
             </button>
             <div className="identity-list__actions">
-              {gateway.id === preferences.activeAiGatewayId ? (
-                <span className="ai-gateway-active" role="img" aria-label="使用中" title="使用中">
-                  <CircleCheck aria-hidden="true" />
-                </span>
-              ) : (
-                <Button variant="ghost" size="icon-sm" disabled={busy}
-                  aria-label={`使用 ${gateway.name || "AI 网关"}`} title="切换到此网关"
-                  onClick={() => void selectGateway(gateway)}>
-                  <CircleCheck />
-                </Button>
-              )}
               <Button variant="ghost" size="icon-sm" disabled={busy} aria-label={`编辑 ${gateway.name || "AI 网关"}`} title="编辑 AI 网关" onClick={() => void openEditor(gateway)}>
                 <Pencil />
               </Button>
@@ -861,6 +883,14 @@ function AiGatewayManager({
         onOpenChange={(open) => { if (!open) setRemoving(null); }} onConfirm={() => void deleteGateway()}>
         确定要删除 AI 网关“<strong>{removing?.name || "AI 网关"}</strong>”吗？
       </DeleteConfirmDialog>
-    </div>
+    </>
   );
+}
+
+function gatewayHost(baseUrl: string) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl.replace(/^https?:\/\//, "").split("/")[0] || baseUrl;
+  }
 }
