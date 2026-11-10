@@ -1,6 +1,6 @@
 import { ScreenLock } from "@/components/ScreenLock";
 import { HostKeyPrompt } from "@/components/HostKeyPrompt";
-import { effectiveShortcuts, shortcutMatches } from "@/lib/shortcuts";
+import { effectiveShortcuts, shortcutMatches, userShortcutText } from "@/lib/shortcuts";
 import type { LockStatus } from "@/lib/api";
 import { applyWindowOpacity, GRAPHITE_BACKGROUND } from "@/lib/themes";
 import { HostSearch } from "@/components/HostSearch";
@@ -726,21 +726,40 @@ export default function App() {
   }
   const keyboardShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (lockStatus.locked || event.isComposing) return;
+    if (document.documentElement.dataset.shortcutRecording === "true") return;
     const element = event.target instanceof Element ? event.target : null;
     if (element?.closest("[data-shortcut-recorder]")) return;
     const bindings = effectiveShortcuts(preferences.shortcuts);
     const action = Object.entries(bindings).find(([, binding]) =>
       shortcutMatches(event, binding),
     )?.[0];
-    if (!action) return;
     const editing =
       element?.closest('input,textarea,[contenteditable="true"]') &&
       !element.closest(".terminal-surface");
+    const blocked =
+      view !== "workspace" ||
+      editing ||
+      document.querySelector('[role="dialog"]');
+    if (!action) {
+      const custom = (preferences.userShortcuts ?? []).find(
+        (item) => item.binding && shortcutMatches(event, item.binding),
+      );
+      if (!custom || blocked) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const terminal = terminalHandles.current.get(active);
+      if (!terminal) {
+        toast.info("请先打开一个终端");
+        return;
+      }
+      void terminal.send(userShortcutText(custom)).catch((error) => {
+        toast.error(errorMessage(error));
+      });
+      return;
+    }
     if (
       !["search", "lock", "settings"].includes(action) &&
-      (view !== "workspace" ||
-        editing ||
-        document.querySelector('[role="dialog"]'))
+      blocked
     )
       return;
     event.preventDefault();

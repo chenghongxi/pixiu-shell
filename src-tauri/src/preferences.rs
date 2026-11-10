@@ -18,6 +18,16 @@ pub(crate) struct AiGateway {
     pub model: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UserShortcut {
+    pub id: Uuid,
+    pub name: String,
+    pub binding: String,
+    pub kind: String,
+    pub text: String,
+}
+
 // Unknown keys are ignored: a stored blob written by a newer build must not
 // keep the desktop client from starting.
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,6 +54,7 @@ pub(crate) struct Preferences {
     pub ai_model: String,
     pub ai_gateways: Vec<AiGateway>,
     pub active_ai_gateway_id: Option<Uuid>,
+    pub user_shortcuts: Vec<UserShortcut>,
 }
 
 impl Default for Preferences {
@@ -68,6 +79,7 @@ impl Default for Preferences {
             ai_model: String::new(),
             ai_gateways: Vec::new(),
             active_ai_gateway_id: None,
+            user_shortcuts: Vec::new(),
         }
     }
 }
@@ -197,6 +209,36 @@ impl Preferences {
             self.active_ai_gateway_id.is_none_or(|id| ids.contains(&id)),
             "当前 AI 网关不存在"
         );
+        ensure!(self.user_shortcuts.len() <= 30, "用户按键最多 30 条");
+        let mut shortcut_ids = std::collections::BTreeSet::new();
+        let mut shortcut_bindings = std::collections::BTreeSet::new();
+        for item in &self.user_shortcuts {
+            ensure!(
+                shortcut_ids.insert(item.id)
+                    && !item.name.trim().is_empty()
+                    && item.name.chars().count() <= 40
+                    && !item.name.chars().any(char::is_control),
+                "用户按键名称无效"
+            );
+            ensure!(
+                !item.binding.is_empty()
+                    && item.binding.len() <= 64
+                    && !item.binding.chars().any(char::is_control)
+                    && shortcut_bindings.insert(item.binding.clone())
+                    && !self.shortcuts.values().any(|value| value == &item.binding),
+                "用户按键快捷键无效"
+            );
+            ensure!(
+                item.kind == "send" || item.kind == "sendEnter",
+                "用户按键类型无效"
+            );
+            ensure!(
+                !item.text.is_empty()
+                    && item.text.chars().count() <= 2000
+                    && !item.text.chars().any(char::is_control),
+                "用户按键字符串无效"
+            );
+        }
         Ok(())
     }
 }

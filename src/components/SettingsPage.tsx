@@ -92,6 +92,7 @@ export function SettingsPage({
   const [draft, setDraft] = useState(preferences);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const savedRef = useRef(preferences);
   const [aiTab, setAiTab] = useState("gateways");
   const [historyToolbar, setHistoryToolbar] = useState<HTMLDivElement | null>(null);
   const openGatewayEditor = useRef<(() => void) | null>(null);
@@ -99,6 +100,7 @@ export function SettingsPage({
     // Native bootstrap and global theme controls can update saved preferences.
     // oxlint-disable-next-line react/set-state-in-effect
     setDraft(preferences);
+    savedRef.current = preferences;
   }, [preferences]);
   useEffect(() => {
     // Apply while dragging so the translucent window tracks the slider; the
@@ -119,7 +121,14 @@ export function SettingsPage({
     setSaving(true);
     setError("");
     try {
-      const conflict = shortcutConflict(effectiveShortcuts(draft.shortcuts));
+      const conflict = shortcutConflict(
+        effectiveShortcuts(draft.shortcuts),
+        undefined,
+        (draft.userShortcuts ?? []).map((item) => ({
+          label: item.name || "用户按键",
+          binding: item.binding,
+        })),
+      );
       if (conflict) throw new Error(conflict);
       await onSave({ ...draft, platformAddress: draft.platformAddress.trim() });
       toast.success("配置已保存，刷新和重启后仍然有效");
@@ -128,6 +137,19 @@ export function SettingsPage({
     } finally {
       setSaving(false);
     }
+  }
+  function persistShortcuts(shortcuts: Preferences["shortcuts"], userShortcuts: Preferences["userShortcuts"]) {
+    const next = {
+      ...savedRef.current,
+      shortcuts,
+      userShortcuts,
+      platformAddress: savedRef.current.platformAddress.trim(),
+    };
+    savedRef.current = next;
+    setDraft((current) => ({ ...current, shortcuts, userShortcuts }));
+    void onSave(next).catch((error: unknown) => {
+      toast.error(`保存快捷键失败：${errorMessage(error)}`);
+    });
   }
   return (
     <div className="settings-page" data-settings-tab={tab === "hosts" ? "appearance" : tab}>
@@ -186,8 +208,27 @@ export function SettingsPage({
           <TabsContent value="shortcuts">
             <ShortcutSettings
               values={draft.shortcuts ?? {}}
-              onChange={(value) => update("shortcuts", value)}
-              onSave={() => void save()}
+              onChange={(value) => {
+                const userShortcuts = draft.userShortcuts ?? [];
+                update("shortcuts", value);
+                const conflict = shortcutConflict(
+                  effectiveShortcuts(value),
+                  undefined,
+                  userShortcuts.map((item) => ({ label: item.name || "用户按键", binding: item.binding })),
+                );
+                if (!conflict) persistShortcuts(value, userShortcuts);
+              }}
+              userShortcuts={draft.userShortcuts ?? []}
+              onUserShortcutsChange={(value) => {
+                const shortcuts = draft.shortcuts ?? {};
+                update("userShortcuts", value);
+                const conflict = shortcutConflict(
+                  effectiveShortcuts(shortcuts),
+                  undefined,
+                  value.map((item) => ({ label: item.name || "用户按键", binding: item.binding })),
+                );
+                if (!conflict) persistShortcuts(shortcuts, value);
+              }}
               busy={saving}
             />
           </TabsContent>

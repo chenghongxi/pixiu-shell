@@ -1,3 +1,5 @@
+import type { UserShortcut } from "@/lib/api";
+
 function currentPlatform(): string {
   return typeof navigator === "undefined" ? "" : navigator.platform;
 }
@@ -10,6 +12,48 @@ function resolveModifiers(parts: string[], platform: string): Set<string> {
   return new Set(
     parts.map((part) => (part === "Mod" ? primaryModifier(platform) : part)),
   );
+}
+
+const namedCodes: Record<string, string> = {
+  Minus: "-",
+  Equal: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  Backquote: "`",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Space: "Space",
+  Tab: "Tab",
+  Enter: "Enter",
+  NumpadEnter: "Enter",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  Escape: "Escape",
+  NumpadAdd: "=",
+  NumpadSubtract: "-",
+  NumpadDecimal: ".",
+  NumpadMultiply: "*",
+  NumpadDivide: "/",
+};
+
+function shortcutKey(event: KeyboardEvent): string | null {
+  if (event.key === "+" || event.code === "NumpadAdd") return "=";
+  if (event.code === "NumpadSubtract") return "-";
+  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3);
+  if (/^Digit[0-9]$/.test(event.code)) return event.code.slice(5);
+  if (/^Numpad[0-9]$/.test(event.code)) return event.code.slice(6);
+  if (/^F(?:[1-9]|1[0-2])$/.test(event.code)) return event.code;
+  if (namedCodes[event.code]) return namedCodes[event.code];
+  if (event.key.length === 1 && /[a-z0-9]/i.test(event.key)) return event.key.toUpperCase();
+  return null;
+}
+
+function modifierDown(event: KeyboardEvent, name: "Meta" | "Control" | "Alt" | "Shift", flag: boolean) {
+  return flag || event.getModifierState(name);
 }
 
 export const shortcutActions = [
@@ -44,42 +88,31 @@ export function shortcutMatches(
   if (!binding) return false;
   const parts = binding.split("+"),
     key = parts.pop()!.toLowerCase();
-  const actual =
-    event.code === "NumpadAdd" || event.key === "+"
-      ? "="
-      : event.code === "NumpadSubtract"
-        ? "-"
-        : event.key.toLowerCase();
+  const actual = shortcutKey(event)?.toLowerCase();
   if (actual !== key) return false;
   const modifiers = resolveModifiers(parts, platform);
   if (
-    event.metaKey !== modifiers.has("Meta") ||
-    event.ctrlKey !== modifiers.has("Ctrl")
+    modifierDown(event, "Meta", event.metaKey) !== modifiers.has("Meta") ||
+    modifierDown(event, "Control", event.ctrlKey) !== modifiers.has("Ctrl")
   )
     return false;
+  const shift = modifierDown(event, "Shift", event.shiftKey);
   return (
-    event.altKey === modifiers.has("Alt") &&
-    ((key === "=" && event.key === "+") ||
-      event.shiftKey === modifiers.has("Shift"))
+    modifierDown(event, "Alt", event.altKey) === modifiers.has("Alt") &&
+    ((key === "=" && (event.key === "+" || event.code === "NumpadAdd")) ||
+      shift === modifiers.has("Shift"))
   );
 }
 export function captureShortcut(event: KeyboardEvent): string | null {
-  if (
-    event.isComposing ||
-    ["Meta", "Control", "Alt", "Shift"].includes(event.key)
-  )
+  if (/^(?:Meta|Control|Alt|Shift)(?:Left|Right)?$/.test(event.code) || ["Meta", "Control", "Alt", "Shift"].includes(event.key))
     return null;
-  if (!event.metaKey && !event.ctrlKey && !event.altKey) return null;
-  const key =
-    event.key === "+"
-      ? "="
-      : event.code === "NumpadAdd"
-        ? "="
-        : event.code === "NumpadSubtract"
-          ? "-"
-          : event.key.length === 1
-            ? event.key.toUpperCase()
-            : event.key;
+  const key = shortcutKey(event);
+  if (!key) return null;
+  const meta = modifierDown(event, "Meta", event.metaKey);
+  const ctrl = modifierDown(event, "Control", event.ctrlKey);
+  const alt = modifierDown(event, "Alt", event.altKey);
+  const shift = modifierDown(event, "Shift", event.shiftKey);
+  if (!meta && !ctrl && !alt && !shift) return null;
   if (
     !/^(?:[A-Z0-9,=\-[\]\\/;.'`]|Tab|Enter|Backspace|Delete|Escape|F\d{1,2})$/.test(
       key,
@@ -87,20 +120,28 @@ export function captureShortcut(event: KeyboardEvent): string | null {
   )
     return null;
   return [
-    ...(event.metaKey ? ["Meta"] : []),
-    ...(event.ctrlKey ? ["Ctrl"] : []),
-    ...(event.altKey ? ["Alt"] : []),
-    ...(event.shiftKey && key !== "=" ? ["Shift"] : []),
+    ...(meta ? ["Meta"] : []),
+    ...(ctrl ? ["Ctrl"] : []),
+    ...(alt ? ["Alt"] : []),
+    ...(shift && key !== "=" ? ["Shift"] : []),
     key,
   ].join("+");
 }
 export function shortcutConflict(
   values: Record<string, string>,
   platform = currentPlatform(),
+  extras: { label: string; binding: string }[] = [],
 ): string | undefined {
   const seen = new Map<string, string>();
-  for (const action of shortcutActions) {
-    const binding = values[action.id];
+  const entries = [
+    ...shortcutActions.map((action) => ({
+      label: action.label,
+      binding: values[action.id],
+    })),
+    ...extras,
+  ];
+  for (const action of entries) {
+    const binding = action.binding;
     if (!binding) continue;
     const parts = binding.split("+");
     const key = parts.pop()!.toLowerCase();
@@ -110,12 +151,38 @@ export function shortcutConflict(
     if (previous) return `${previous} 与 ${action.label} 使用了相同的快捷键`;
     seen.set(normalized, action.label);
   }
-  return undefined;
+    return undefined;
+}
+export function decodeShortcutText(value: string) {
+  let text = "";
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index];
+    if (char !== "\\") {
+      text += char;
+      continue;
+    }
+    const next = value[++index];
+    text +=
+      next === "n"
+        ? "\n"
+        : next === "r"
+          ? "\r"
+          : next === "t"
+            ? "\t"
+            : next === "\\"
+              ? "\\"
+              : `\\${next ?? ""}`;
+  }
+  return text;
+}
+export function userShortcutText(item: UserShortcut) {
+  const text = decodeShortcutText(item.text);
+  if (item.kind === "sendEnter" && !text.endsWith("\r")) return `${text}\r`;
+  return text;
 }
 export function shortcutLabel(value: string, platform = currentPlatform()) {
   const mac = primaryModifier(platform) === "Meta";
   return value
     .replaceAll("Mod", mac ? "⌘" : "Ctrl")
-    .replaceAll("Meta", mac ? "⌘" : "Win")
-    .replaceAll("Shift", "⇧");
+    .replaceAll("Meta", mac ? "⌘" : "Win");
 }

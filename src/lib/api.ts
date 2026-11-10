@@ -261,8 +261,16 @@ export interface AiGateway {
   baseUrl: string;
   model: string;
 }
+export interface UserShortcut {
+  id: string;
+  name: string;
+  binding: string;
+  kind: "send" | "sendEnter";
+  text: string;
+}
 export interface Preferences {
   shortcuts: Record<string, string>;
+  userShortcuts: UserShortcut[];
   uploadCommand: string;
   downloadCommand: string;
   /** 右侧停靠区（主机监控 / 主机 AI / 文件管理）的统一面板宽度。 */
@@ -285,6 +293,7 @@ export interface Preferences {
 }
 export const defaultPreferences: Preferences = {
   shortcuts: {},
+  userShortcuts: [],
   uploadCommand: "cl-u",
   downloadCommand: "cl-d",
   aiPanelWidth: 400,

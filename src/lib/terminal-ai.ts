@@ -47,6 +47,7 @@ export interface TerminalHandle {
   insert: (command: string) => Promise<void>;
   execute: (command: string) => Promise<void>;
   executeAndCapture: (command: string, signal?: AbortSignal) => Promise<string>;
+  send: (text: string) => Promise<void>;
 }
 export interface AgentEvent {
   eventType: string;

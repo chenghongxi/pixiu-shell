@@ -465,6 +465,23 @@ export function TerminalPane({
       inputBuffer.current = commandText;
       terminal.current?.focus();
     },
+    async send(text) {
+      if (!id.current || status !== "connected") throw new Error("终端未连接");
+      if (!text || text.length > 4000) throw new Error("发送内容为空或过长");
+      if (
+        Array.from(text).some((char) => {
+          const code = char.charCodeAt(0);
+          return code !== 9 && code !== 10 && code !== 13 && (code < 32 || code === 127);
+        })
+      )
+        throw new Error("字符串包含不支持的控制符");
+      await command("terminal_input", {
+        id: id.current,
+        input: { type: "input", data: text },
+      });
+      inputBuffer.current = text.includes("\r") || text.includes("\n") ? "" : inputBuffer.current + text;
+      terminal.current?.focus();
+    },
   }));
   useEffect(() => {
     if (!container.current) return;
