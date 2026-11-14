@@ -2801,6 +2801,7 @@ export default function App() {
                         }}
                         title={isSplit ? paneTitle(session) : undefined}
                         baseTitle={session.label || session.host.name}
+                        hostName={session.host.name}
                         terminalTitle={session.terminalTitle}
                         onTitleUpdate={(title) =>
                           updateTerminalTitle(session.id, title)

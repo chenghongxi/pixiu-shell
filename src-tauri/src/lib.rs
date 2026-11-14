@@ -4,6 +4,7 @@ mod ai;
 mod ai_history;
 mod askpass_bridge;
 mod auth_store;
+mod command_history;
 mod commands;
 mod credentials;
 mod dingtalk;
@@ -522,6 +523,9 @@ pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 ai_history::ai_history_update,
                 ai_history::ai_history_delete,
                 ai_history::ai_history_retention,
+                command_history::command_history_list,
+                command_history::command_history_record,
+                command_history::command_history_delete,
                 commands::preferences_load,
                 commands::preferences_save,
                 commands::ai_key_configured,

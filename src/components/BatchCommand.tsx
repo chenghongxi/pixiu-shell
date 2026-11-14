@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Send, TerminalSquare, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { errorMessage } from "@/lib/api";
+import { listCommandHistory } from "@/lib/command-history";
 export function BatchCommand({
   windows,
   onExecute,
@@ -17,6 +18,19 @@ export function BatchCommand({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef(-1);
+  const draftRef = useRef("");
+  const refreshHistory = useCallback(() => {
+    void listCommandHistory(undefined, undefined, 100)
+      .then((entries) => {
+        historyRef.current = entries.map((entry) => entry.command);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
   const [results, setResults] = useState<
     { id: string; name: string; error?: string }[]
   >([]);
@@ -43,6 +57,9 @@ export function BatchCommand({
       );
       setResults(results);
       setText("");
+      historyIndexRef.current = -1;
+      draftRef.current = "";
+      refreshHistory();
     } finally {
       sending.current = false;
       setBusy(false);
@@ -127,13 +144,34 @@ export function BatchCommand({
           }
           value={text}
           disabled={busy || !targets.length}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            historyIndexRef.current = -1;
+            draftRef.current = event.target.value;
+            setText(event.target.value);
+          }}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" &&
               (event.nativeEvent.isComposing || event.keyCode === 229)
-            )
+            ) {
               event.preventDefault();
+              return;
+            }
+            if (event.key === "ArrowUp" && historyRef.current.length) {
+              event.preventDefault();
+              if (historyIndexRef.current < 0) draftRef.current = text;
+              const next = Math.min(
+                historyRef.current.length - 1,
+                historyIndexRef.current + 1,
+              );
+              historyIndexRef.current = next;
+              setText(historyRef.current[next] ?? "");
+            } else if (event.key === "ArrowDown" && historyIndexRef.current >= 0) {
+              event.preventDefault();
+              const next = historyIndexRef.current - 1;
+              historyIndexRef.current = next;
+              setText(next < 0 ? draftRef.current : (historyRef.current[next] ?? ""));
+            }
           }}
           maxLength={4000}
         />

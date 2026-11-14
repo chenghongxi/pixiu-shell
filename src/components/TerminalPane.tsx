@@ -9,9 +9,23 @@ import { Input } from "./ui/input";
 import { isAutomaticReadOnly, cleanDiagnosticOutput, hasDiagnosticPrompt } from "@/lib/diagnosis";
 import {
   cleanTerminalTitle,
+  extractShellInputState,
   visibleShellCommand,
   visibleShellPrompt,
 } from "@/lib/terminal-command";
+import {
+  COMMAND_HISTORY_CHANGED_EVENT,
+  commandHistoryScope,
+  deleteCommandHistory,
+  filterCommandSuggestions,
+  formatHistoryTime,
+  isSensitiveTerminalPrompt,
+  listCommandHistory,
+  recordCommandHistory,
+  type CommandHistoryEntry,
+  type CommandSuggestion,
+} from "@/lib/command-history";
+import { getQuickCommands } from "@/lib/quick-commands";
 import { transferCommand } from "@/lib/transfer-command";
 import {
   useEffect,
@@ -35,6 +49,9 @@ import {
   ChevronUp,
   ChevronDown,
   Maximize2,
+  CornerDownLeft,
+  History,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -139,6 +156,7 @@ export function TerminalPane({
   ref,
   title,
   baseTitle,
+  hostName,
   terminalTitle,
   onTitleUpdate,
   onClose,
@@ -151,13 +169,17 @@ export function TerminalPane({
   ref?: Ref<TerminalHandle>;
   title?: string;
   baseTitle: string;
+  hostName?: string;
   terminalTitle?: string;
   onTitleUpdate?: (title: string | null) => void;
   onClose?: () => void;
   dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
 }) {
   const isRdp = target.mode === "platform" && target.protocol === "rdp";
+  const isWindowsShell =
+    target.mode === "shell" && /Win/i.test(navigator.platform);
   const container = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchTextRef = useRef("");
   const terminal = useRef<Terminal | null>(null);
@@ -189,6 +211,31 @@ export function TerminalPane({
   useEffect(() => {
     preferencesRef.current = preferences;
   }, [preferences]);
+  const historyMetaRef = useRef({
+    scope: commandHistoryScope(target),
+    hostName: hostName || baseTitle,
+    hostAddress: target.mode === "shell" ? "本机" : address,
+  });
+  useEffect(() => {
+    historyMetaRef.current = {
+      scope: commandHistoryScope(target),
+      hostName: hostName || baseTitle,
+      hostAddress: target.mode === "shell" ? "本机" : address,
+    };
+  }, [target, hostName, baseTitle, address]);
+  const recordCommand = useCallback(
+    (commandText: string) => {
+      if (isRdp) return;
+      const meta = historyMetaRef.current;
+      void recordCommandHistory({
+        scope: meta.scope,
+        hostName: meta.hostName,
+        hostAddress: meta.hostAddress,
+        command: commandText,
+      }).catch(() => {});
+    },
+    [isRdp],
+  );
   const transferBusy = useRef(false);
   const [transferPath, setTransferPath] = useState<{
     direction: "upload" | "download";
@@ -247,6 +294,10 @@ export function TerminalPane({
     index: number;
     count: number;
   } | null>(null);
+  const searchOpenRef = useRef(false);
+  useEffect(() => {
+    searchOpenRef.current = searchOpen;
+  }, [searchOpen]);
   const [commandApprovalBusy, setCommandApprovalBusy] = useState(false);
   const [pendingCommandApproval, setPendingCommandApproval] = useState<{
     command: string;
@@ -255,6 +306,240 @@ export function TerminalPane({
     approval?: CommandApproval;
     remainingSeconds?: number;
   } | null>(null);
+  const pendingApprovalRef = useRef(false);
+  useEffect(() => {
+    pendingApprovalRef.current = Boolean(pendingCommandApproval);
+  }, [pendingCommandApproval]);
+  const historyEntriesRef = useRef<CommandHistoryEntry[]>([]);
+  const suggestionsRef = useRef<CommandSuggestion[]>([]);
+  const activeSuggestionRef = useRef(0);
+  const suggestionInputRef = useRef({
+    query: "",
+    fullCommand: "",
+    atEnd: true,
+  });
+  const dismissedInputRef = useRef("");
+  const [suggestions, setSuggestions] = useState<CommandSuggestion[]>([]);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const [suggestionQuery, setSuggestionQuery] = useState("");
+  const [suggestionPosition, setSuggestionPosition] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    maxWidth: number;
+    placement: "above" | "below";
+  } | null>(null);
+  const clearSuggestions = useCallback(() => {
+    suggestionsRef.current = [];
+    activeSuggestionRef.current = 0;
+    setSuggestions((prev) => (prev.length ? [] : prev));
+    setActiveSuggestion(0);
+    setSuggestionPosition((prev) => (prev ? null : prev));
+  }, []);
+  const syncSuggestions = useCallback(() => {
+    const instance = terminal.current;
+    if (
+      !instance ||
+      isRdp ||
+      !activeRef.current ||
+      statusRef.current !== "connected" ||
+      searchOpenRef.current ||
+      pendingApprovalRef.current ||
+      commandCapture.current
+    ) {
+      clearSuggestions();
+      return;
+    }
+    const inputState = extractShellInputState(instance);
+    if (!inputState) {
+      dismissedInputRef.current = "";
+      clearSuggestions();
+      return;
+    }
+    const buffer = instance.buffer.active;
+    const lineText =
+      buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
+    if (isSensitiveTerminalPrompt(lineText)) {
+      clearSuggestions();
+      return;
+    }
+    const query = inputState.commandBeforeCursor;
+    if (!query.trim()) {
+      dismissedInputRef.current = "";
+      clearSuggestions();
+      return;
+    }
+    if (dismissedInputRef.current && query === dismissedInputRef.current) {
+      clearSuggestions();
+      return;
+    }
+    if (dismissedInputRef.current && query !== dismissedInputRef.current) {
+      dismissedInputRef.current = "";
+    }
+    const quickCommands = getQuickCommands({
+      isWindowsShell,
+      includeTransfer: target.mode !== "shell",
+      uploadCommand: preferencesRef.current.uploadCommand,
+      downloadCommand: preferencesRef.current.downloadCommand,
+    });
+    const next = filterCommandSuggestions(
+      historyEntriesRef.current,
+      query,
+      historyMetaRef.current.scope,
+      6,
+      quickCommands,
+    );
+    if (!next.length) {
+      clearSuggestions();
+      return;
+    }
+    const surfaceEl = surfaceRef.current;
+    const screenEl = container.current?.querySelector(".xterm-screen");
+    if (!surfaceEl || !screenEl) {
+      clearSuggestions();
+      return;
+    }
+    const surfaceRect = surfaceEl.getBoundingClientRect();
+    const screenRect = screenEl.getBoundingClientRect();
+    if (
+      !surfaceRect.width ||
+      !surfaceRect.height ||
+      !screenRect.width ||
+      !screenRect.height
+    ) {
+      clearSuggestions();
+      return;
+    }
+    const cellWidth = screenRect.width / Math.max(1, instance.cols);
+    const cellHeight = screenRect.height / Math.max(1, instance.rows);
+    const cursorLeft =
+      screenRect.left - surfaceRect.left + buffer.cursorX * cellWidth;
+    const cursorTop =
+      screenRect.top - surfaceRect.top + buffer.cursorY * cellHeight;
+    const cursorBottom = cursorTop + cellHeight;
+    const maxWidth = Math.min(
+      520,
+      Math.max(220, Math.round(surfaceRect.width - 16)),
+    );
+    const left = Math.max(
+      8,
+      Math.min(
+        Math.round(cursorLeft),
+        Math.round(surfaceRect.width - maxWidth - 8),
+      ),
+    );
+    const placeBelow = surfaceRect.height - cursorBottom >= 176 || cursorTop < 140;
+
+    const sameQueryAndList =
+      suggestionInputRef.current.query === query &&
+      suggestionsRef.current.length === next.length &&
+      suggestionsRef.current.every(
+        (item, index) => item.command === next[index]?.command,
+      );
+    const nextIndex = sameQueryAndList
+      ? Math.min(activeSuggestionRef.current, next.length - 1)
+      : 0;
+    suggestionInputRef.current = {
+      query,
+      fullCommand: inputState.fullCommand,
+      atEnd: inputState.atEnd,
+    };
+    suggestionsRef.current = next;
+    activeSuggestionRef.current = nextIndex;
+    setSuggestionQuery(query);
+    setSuggestions(next);
+    setActiveSuggestion(nextIndex);
+    setSuggestionPosition(
+      placeBelow
+        ? {
+            left,
+            top: Math.max(6, Math.round(cursorBottom + 4)),
+            maxWidth,
+            placement: "below",
+          }
+        : {
+            left,
+            bottom: Math.max(6, Math.round(surfaceRect.height - cursorTop + 4)),
+            maxWidth,
+            placement: "above",
+          },
+    );
+  }, [clearSuggestions, isRdp, isWindowsShell, target.mode]);
+  const syncSuggestionsRef = useRef(syncSuggestions);
+  useEffect(() => {
+    syncSuggestionsRef.current = syncSuggestions;
+  }, [syncSuggestions]);
+  const acceptSuggestion = useCallback(
+    (suggestion: CommandSuggestion, execute: boolean) => {
+      const currentId = id.current;
+      const instance = terminal.current;
+      if (!currentId || !instance || statusRef.current !== "connected") return;
+      const { query, fullCommand, atEnd } = suggestionInputRef.current;
+      const isExactPrefix =
+        atEnd &&
+        query.length > 0 &&
+        suggestion.command.startsWith(query) &&
+        fullCommand === query;
+      const clearPrefix = isWindowsShell ? "\x1b" : "\x05\u0015";
+      const payload = isExactPrefix
+        ? `${suggestion.command.slice(query.length)}${execute ? "\r" : ""}`
+        : `${clearPrefix}${suggestion.command}${execute ? "\r" : ""}`;
+
+      dismissedInputRef.current = execute ? "" : suggestion.command;
+      clearSuggestions();
+      inputBuffer.current = execute ? "" : suggestion.command;
+      inputNeedsSnapshot.current = false;
+
+      if (execute) {
+        lastCommand.current = suggestion.command;
+        commandTitleActive.current = true;
+        commandTitleRevision.current = shellTitleRevision.current;
+        titleUpdateRef.current?.(cleanTerminalTitle(suggestion.command));
+        recordCommand(suggestion.command);
+      }
+
+      void command("terminal_input", {
+        id: currentId,
+        input: {
+          type: "input",
+          data: payload,
+          ...(execute ? { command: suggestion.command } : {}),
+        },
+      }).catch((error) => {
+        toast.error(errorMessage(error), { id: "terminal-input" });
+      });
+      instance.focus();
+    },
+    [clearSuggestions, isWindowsShell, recordCommand],
+  );
+  const acceptSuggestionRef = useRef(acceptSuggestion);
+  useEffect(() => {
+    acceptSuggestionRef.current = acceptSuggestion;
+  }, [acceptSuggestion]);
+  const loadHistoryCache = useCallback(async () => {
+    if (isRdp) return;
+    try {
+      const [scopeEntries, globalEntries] = await Promise.all([
+        listCommandHistory(historyMetaRef.current.scope, undefined, 300),
+        listCommandHistory(undefined, undefined, 500),
+      ]);
+      historyEntriesRef.current = [...scopeEntries, ...globalEntries];
+      syncSuggestionsRef.current();
+    } catch {
+      // Ignore transient storage errors for inline suggestions.
+    }
+  }, [isRdp]);
+  useEffect(() => {
+    if (isRdp || status !== "connected") return;
+    void loadHistoryCache();
+    const onHistoryChanged = () => {
+      void loadHistoryCache();
+    };
+    window.addEventListener(COMMAND_HISTORY_CHANGED_EVENT, onHistoryChanged);
+    return () => {
+      window.removeEventListener(COMMAND_HISTORY_CHANGED_EVENT, onHistoryChanged);
+    };
+  }, [isRdp, status, loadHistoryCache]);
   const commandApprovalTimer = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -321,17 +606,20 @@ export function TerminalPane({
       };
     },
     async execute(commandText) {
-      if (!id.current || status !== "connected") throw new Error("SSH 未连接");
+      if (!id.current || status !== "connected") throw new Error("终端未连接");
       if (
         !commandText.trim() ||
         commandText.length > 4000 ||
         hasControlCharacters(commandText)
       )
         throw new Error("请输入不含控制符的单行命令");
-      if (inputBuffer.current.trim())
-        throw new Error("终端存在未提交的输入，请先清空");
       if (terminal.current?.buffer.active.type !== "normal")
-        throw new Error("请退出交互式程序后再批量执行");
+        throw new Error("请退出交互式程序后再执行命令");
+      const visibleCommand = terminal.current
+        ? visibleShellCommand(terminal.current)
+        : "";
+      if (inputBuffer.current.trim() || visibleCommand.trim())
+        throw new Error("终端存在未提交的输入，请先清空");
       commandTitleActive.current = true;
       commandTitleRevision.current = shellTitleRevision.current;
       titleUpdateRef.current?.(cleanTerminalTitle(commandText));
@@ -339,11 +627,15 @@ export function TerminalPane({
         id: id.current,
         input: {
           type: "input",
-          data: commandText + "\r",
+          data: `${commandText}\r`,
           command: commandText,
         },
       });
+      inputBuffer.current = "";
+      inputNeedsSnapshot.current = false;
       lastCommand.current = commandText;
+      recordCommand(commandText);
+      terminal.current?.focus();
     },
     async executeAndCapture(commandText, signal) {
       if (target.mode === "shell")
@@ -449,13 +741,11 @@ export function TerminalPane({
         hasControlCharacters(commandText)
       )
         throw new Error("仅支持填入不含控制符的单行命令");
-      const buffer = terminal.current?.buffer.active;
-      const line =
-        buffer
-          ?.getLine(buffer.baseY + buffer.cursorY)
-          ?.translateToString(true) ?? "";
-      const visibleCommand =
-        line.match(/^[\w.-]+@[\w.-]+:.*?\s*[$#]\s?(.*)$/)?.[1] ?? "";
+      if (terminal.current?.buffer.active.type !== "normal")
+        throw new Error("请退出交互式程序后再填入命令");
+      const visibleCommand = terminal.current
+        ? visibleShellCommand(terminal.current)
+        : "";
       if (inputBuffer.current.trim() || visibleCommand.trim())
         throw new Error("请先清空终端中正在输入的命令");
       await command("terminal_input", {
@@ -463,6 +753,7 @@ export function TerminalPane({
         input: { type: "input", data: commandText },
       });
       inputBuffer.current = commandText;
+      inputNeedsSnapshot.current = false;
       terminal.current?.focus();
     },
     async send(text) {
@@ -479,6 +770,15 @@ export function TerminalPane({
         id: id.current,
         input: { type: "input", data: text },
       });
+      if (
+        (text.endsWith("\r") || text.endsWith("\n")) &&
+        terminal.current?.buffer.active.type === "normal"
+      ) {
+        const submitted = text.replace(/[\r\n]+$/, "");
+        if (submitted.trim() && !hasControlCharacters(submitted)) {
+          recordCommand(submitted);
+        }
+      }
       inputBuffer.current = text.includes("\r") || text.includes("\n") ? "" : inputBuffer.current + text;
       terminal.current?.focus();
     },
@@ -718,17 +1018,92 @@ export function TerminalPane({
       titleUpdateRef.current?.(clean || null);
     });
     const onWriteParsed = instance.onWriteParsed(() => {
-      if (!commandTitleActive.current) return;
-      const prompt = visibleShellPrompt(instance);
-      if (!prompt) return;
-      commandTitleActive.current = false;
-      const title =
-        shellTitleRevision.current > commandTitleRevision.current
-          ? shellTitleRef.current
-          : target.mode === "shell"
-            ? `${baseTitle} · ${prompt}`
-            : `${prompt} (SSH)`;
-      titleUpdateRef.current?.(title);
+      if (commandTitleActive.current) {
+        const prompt = visibleShellPrompt(instance);
+        if (prompt) {
+          commandTitleActive.current = false;
+          const title =
+            shellTitleRevision.current > commandTitleRevision.current
+              ? shellTitleRef.current
+              : target.mode === "shell"
+                ? `${baseTitle} · ${prompt}`
+                : `${prompt} (SSH)`;
+          titleUpdateRef.current?.(title);
+        }
+      }
+      syncSuggestionsRef.current();
+    });
+    const onCursorMove = instance.onCursorMove(() => {
+      syncSuggestionsRef.current();
+    });
+    instance.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      if (event.isComposing || event.keyCode === 229) return true;
+      const currentSuggestions = suggestionsRef.current;
+      if (!currentSuggestions.length) return true;
+      const hasModifier = event.ctrlKey || event.metaKey || event.altKey;
+
+      if (!hasModifier && !event.shiftKey && event.key === "ArrowDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        const nextIndex =
+          (activeSuggestionRef.current + 1) % currentSuggestions.length;
+        activeSuggestionRef.current = nextIndex;
+        setActiveSuggestion(nextIndex);
+        return false;
+      }
+      if (!hasModifier && !event.shiftKey && event.key === "ArrowUp") {
+        event.preventDefault();
+        event.stopPropagation();
+        const nextIndex =
+          (activeSuggestionRef.current - 1 + currentSuggestions.length) %
+          currentSuggestions.length;
+        activeSuggestionRef.current = nextIndex;
+        setActiveSuggestion(nextIndex);
+        return false;
+      }
+      if (!hasModifier && !event.shiftKey && event.key === "Tab") {
+        event.preventDefault();
+        event.stopPropagation();
+        const chosen =
+          currentSuggestions[activeSuggestionRef.current] ?? currentSuggestions[0];
+        if (chosen) acceptSuggestionRef.current(chosen, false);
+        return false;
+      }
+      if (
+        !hasModifier &&
+        !event.shiftKey &&
+        event.key === "ArrowRight" &&
+        suggestionInputRef.current.atEnd
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        const chosen =
+          currentSuggestions[activeSuggestionRef.current] ?? currentSuggestions[0];
+        if (chosen) acceptSuggestionRef.current(chosen, false);
+        return false;
+      }
+      if (!hasModifier && event.shiftKey && event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        const chosen =
+          currentSuggestions[activeSuggestionRef.current] ?? currentSuggestions[0];
+        if (chosen) acceptSuggestionRef.current(chosen, true);
+        return false;
+      }
+      if (!hasModifier && !event.shiftKey && event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        dismissedInputRef.current = suggestionInputRef.current.query;
+        clearSuggestions();
+        return false;
+      }
+      if (!hasModifier && !event.shiftKey && event.key === "Enter") {
+        dismissedInputRef.current = "";
+        clearSuggestions();
+        return true;
+      }
+      return true;
     });
 
     // Reconnect generation starts a fresh native session.
@@ -819,8 +1194,22 @@ export function TerminalPane({
         for (const char of clean) {
           pending += char;
           if (char === "\r" || char === "\n") {
+            const currentLine =
+              instance.buffer.active
+                .getLine(
+                  instance.buffer.active.baseY + instance.buffer.active.cursorY,
+                )
+                ?.translateToString(true) ?? "";
             const snapshot = visible || inputBuffer.current.trim();
-            if (snapshot) lastCommand.current = snapshot;
+            if (snapshot) {
+              lastCommand.current = snapshot;
+              if (
+                instance.buffer.active.type === "normal" &&
+                !isSensitiveTerminalPrompt(currentLine)
+              ) {
+                recordCommand(snapshot);
+              }
+            }
             inputBuffer.current = "";
             inputNeedsSnapshot.current = false;
             send({
@@ -942,6 +1331,8 @@ export function TerminalPane({
       onSearchResults.dispose();
       onTerminalTitle.dispose();
       onWriteParsed.dispose();
+      onCursorMove.dispose();
+      clearSuggestions();
       const current = id.current;
       id.current = null;
       if (current)
@@ -953,7 +1344,7 @@ export function TerminalPane({
       fit.current = null;
       searchAddon.current = null;
     };
-  }, [target, generation, performTransfer, isRdp, rdpCleanup, baseTitle]);
+  }, [target, generation, performTransfer, isRdp, rdpCleanup, baseTitle, recordCommand, clearSuggestions]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -1141,11 +1532,12 @@ export function TerminalPane({
         id: sessionId,
         input: { type: "input", data: `${pending.command}\r` },
       });
+      recordCommand(pending.command);
       setPendingCommandApproval(null);
     } catch (error) {
       toast.error(errorMessage(error));
     }
-  }, [pendingCommandApproval]);
+  }, [pendingCommandApproval, recordCommand]);
 
   const cancelPendingCommandApproval = useCallback(async () => {
     const pending = pendingCommandApproval;
@@ -1198,6 +1590,7 @@ export function TerminalPane({
       if (!document.activeElement?.closest(".terminal-search-bar"))
         terminal.current?.focus();
     }
+    syncSuggestionsRef.current();
   }, [active]);
   async function disconnect() {
     const current = id.current;
@@ -1205,11 +1598,39 @@ export function TerminalPane({
       try {
         await command("terminal_close", { id: current });
         id.current = null;
+        clearSuggestions();
         setStatus("closed");
       } catch (error) {
         toast.error(errorMessage(error));
       }
     }
+  }
+  const showSuggestions =
+    active &&
+    !isRdp &&
+    status === "connected" &&
+    !searchOpen &&
+    !pendingCommandApproval &&
+    suggestions.length > 0 &&
+    suggestionPosition !== null;
+  useEffect(() => {
+    suggestionsRef.current = showSuggestions ? suggestions : [];
+  }, [showSuggestions, suggestions]);
+
+  function renderHighlightedCommand(commandText: string, query: string) {
+    const needle = query.trim();
+    if (!needle) return commandText;
+    const index = commandText.toLowerCase().indexOf(needle.toLowerCase());
+    if (index < 0) return commandText;
+    return (
+      <>
+        {commandText.slice(0, index)}
+        <span className="terminal-history-suggest__match">
+          {commandText.slice(index, index + needle.length)}
+        </span>
+        {commandText.slice(index + needle.length)}
+      </>
+    );
   }
   const statusLabel =
     status === "connected"
@@ -1528,6 +1949,7 @@ export function TerminalPane({
         </div>
       ) : null}
       <div
+        ref={surfaceRef}
         className="terminal-surface"
         aria-label={
           isRdp
@@ -1542,6 +1964,130 @@ export function TerminalPane({
         }}
       >
         <div ref={container} className="terminal-host" />
+        {showSuggestions && suggestionPosition ? (
+          <div
+            className="terminal-history-suggest"
+            role="listbox"
+            aria-label="历史命令快捷提示"
+            data-placement={suggestionPosition.placement}
+            style={{
+              left: `${suggestionPosition.left}px`,
+              maxWidth: `${suggestionPosition.maxWidth}px`,
+              ...(suggestionPosition.top !== undefined
+                ? { top: `${suggestionPosition.top}px` }
+                : {}),
+              ...(suggestionPosition.bottom !== undefined
+                ? { bottom: `${suggestionPosition.bottom}px` }
+                : {}),
+            }}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <div className="terminal-history-suggest__list">
+              {suggestions.map((entry, index) => {
+                const selected = index === activeSuggestion;
+                return (
+                  <div
+                    key={`${entry.id}-${entry.command}`}
+                    role="option"
+                    aria-selected={selected}
+                    className="terminal-history-suggest__item"
+                    onMouseEnter={() => {
+                      activeSuggestionRef.current = index;
+                      setActiveSuggestion(index);
+                    }}
+                    onClick={() => acceptSuggestion(entry, false)}
+                    onDoubleClick={() => acceptSuggestion(entry, true)}
+                  >
+                    {entry.source === "preset" ? (
+                      <Zap className="terminal-history-suggest__icon terminal-history-suggest__icon--preset" />
+                    ) : (
+                      <History className="terminal-history-suggest__icon" />
+                    )}
+                    <code
+                      className="terminal-history-suggest__cmd"
+                      title={entry.command}
+                    >
+                      {renderHighlightedCommand(entry.command, suggestionQuery)}
+                    </code>
+                    <span className="terminal-history-suggest__meta">
+                      {entry.source === "preset" ? (
+                        <>
+                          {entry.description ? (
+                            <span className="terminal-history-suggest__desc">
+                              {entry.description}
+                            </span>
+                          ) : null}
+                          <span className="terminal-history-suggest__badge">
+                            常用
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          {!entry.sameScope ? (
+                            <span className="terminal-history-suggest__host">
+                              {entry.hostName}
+                            </span>
+                          ) : null}
+                          <span>
+                            {entry.useCount > 1
+                              ? `${entry.useCount}次`
+                              : formatHistoryTime(entry.lastUsedAt)}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                    <span className="terminal-history-suggest__actions">
+                      <button
+                        type="button"
+                        className="terminal-history-suggest__btn"
+                        aria-label={`执行 ${entry.command}`}
+                        title="填入并执行 (Shift+Enter)"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          acceptSuggestion(entry, true);
+                        }}
+                      >
+                        <CornerDownLeft />
+                      </button>
+                      {entry.source === "history" ? (
+                        <button
+                          type="button"
+                          className="terminal-history-suggest__btn terminal-history-suggest__btn--delete"
+                          aria-label={`移除 ${entry.command}`}
+                          title="从历史中移除"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteCommandHistory(
+                              entry.id,
+                              !entry.sameScope,
+                            ).catch((error) => toast.error(errorMessage(error)));
+                          }}
+                        >
+                          <X />
+                        </button>
+                      ) : null}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="terminal-history-suggest__footer">
+              <span>
+                <kbd>Tab</kbd> / <kbd>→</kbd> 补全
+              </span>
+              <span>
+                <kbd>↑</kbd>
+                <kbd>↓</kbd> 切换
+              </span>
+              <span>
+                <kbd>Shift+Enter</kbd> 执行
+              </span>
+              <span>
+                <kbd>Esc</kbd> 关闭
+              </span>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
