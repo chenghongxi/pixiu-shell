@@ -1009,7 +1009,7 @@ export default function App() {
         ) ?? session.host);
     setView("workspace");
     setActive(session.id);
-    revealHost(current);
+    revealHost(current, false);
   }
   function aiHistoryScope(session: Session) {
     return JSON.stringify(session.target.mode === "platform"
